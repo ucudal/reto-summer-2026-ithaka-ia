@@ -1,0 +1,123 @@
+{
+    "criterios_evaluacion": {
+        "pregunta_12": {
+            "titulo": "Comentarios adicionales",
+            "tipo": "opcional",
+            "criterios": [
+                "Información relevante adicional",
+                "Clarificaciones importantes"
+            ],
+            "peso": 5,
+            "prompt_evaluacion": "Evalúa si los comentarios aportan información valiosa y relevante para la postulación."
+        },
+        "pregunta_13": {
+            "titulo": "Composición del equipo",
+            "tipo": "evaluativa",
+            "criterios": [
+                "Describe claramente la composición del equipo",
+                "Define roles y responsabilidades específicas",
+                "Muestra complementariedad en habilidades"
+            ],
+            "peso": 15,
+            "prompt_evaluacion": "Analiza si la descripción del equipo es clara, muestra roles definidos y complementariedad de habilidades. ¿El equipo parece equilibrado para el proyecto?"
+        },
+        "pregunta_14": {
+            "titulo": "¿Qué problema resuelve el emprendimiento?",
+            "tipo": "evaluativa",
+            "criterios": [
+                "Identifica claramente un problema específico",
+                "El problema es relevante y tiene impacto",
+                "Explica por qué es importante resolver este problema",
+                "Muestra comprensión del mercado objetivo"
+            ],
+            "peso": 25,
+            "prompt_evaluacion": "Evalúa si la respuesta identifica claramente un problema específico y relevante. ¿El problema tiene impacto real? ¿Se justifica la necesidad de resolverlo?"
+        },
+        "pregunta_15": {
+            "titulo": "¿Cuál es la solución y quiénes son los clientes?",
+            "tipo": "evaluativa",
+            "criterios": [
+                "Describe una solución clara y específica",
+                "Identifica el mercado objetivo correctamente",
+                "La solución está alineada con el problema",
+                "Muestra comprensión del cliente"
+            ],
+            "peso": 20,
+            "prompt_evaluacion": "Analiza si la solución propuesta es clara, específica y está bien alineada con el problema identificado. ¿Los clientes objetivo están bien definidos?"
+        },
+        "pregunta_16": {
+            "titulo": "¿Por qué es innovador o tiene valor diferencial?",
+            "tipo": "evaluativa",
+            "criterios": [
+                "Demuestra aspectos innovadores del producto/proceso",
+                "Explica el valor diferencial vs competencia existente",
+                "Justifica por qué es mejor que las soluciones actuales",
+                "Muestra comprensión del mercado competitivo"
+            ],
+            "peso": 30,
+            "prompt_evaluacion": "Evalúa si la respuesta demuestra claramente la innovación y diferenciación. ¿Se explica convincentemente por qué es mejor que las alternativas existentes?"
+        },
+        "pregunta_17": {
+            "titulo": "¿Cómo hace dinero este proyecto?",
+            "tipo": "evaluativa",
+            "criterios": [
+                "Describe un modelo de negocio claro",
+                "Identifica fuentes de ingresos específicas",
+                "El modelo es realista y viable",
+                "Muestra comprensión de la monetización"
+            ],
+            "peso": 25,
+            "prompt_evaluacion": "Analiza si el modelo de negocio es claro, realista y viable. ¿Las fuentes de ingresos están bien identificadas y son coherentes?"
+        },
+        "pregunta_18": {
+            "titulo": "¿En qué etapa está el proyecto?",
+            "tipo": "informativa",
+            "opciones": [
+                "Idea inicial",
+                "Prototipo/MVP",
+                "Producto desarrollado",
+                "Ventas/Tracción inicial",
+                "Escalando"
+            ],
+            "criterios": [
+                "Selecciona la etapa correcta",
+                "La etapa es coherente con la descripción del proyecto"
+            ],
+            "peso": 10,
+            "prompt_evaluacion": "Verifica si la etapa seleccionada es coherente con la información proporcionada sobre el proyecto."
+        },
+        "pregunta_19": {
+            "titulo": "¿Qué apoyo necesitas de Ithaka?",
+            "tipo": "informativa",
+            "opciones": [
+                "Tutoría para validar la idea",
+                "Soporte para armar el plan de negocios",
+                "Ayuda para obtener financiamiento",
+                "Capacitación",
+                "Ayuda para un tema específico",
+                "Otro"
+            ],
+            "criterios": [
+                "Identifica necesidades específicas",
+                "Las necesidades son coherentes con el proyecto"
+            ],
+            "peso": 10,
+            "prompt_evaluacion": "Evalúa si las necesidades identificadas son específicas y coherentes con el estado del proyecto."
+        },
+        "pregunta_20": {
+            "titulo": "¿Algo más que quieras contarnos?",
+            "tipo": "opcional",
+            "criterios": [
+                "Información adicional relevante",
+                "Detalles que fortalezcan la postulación"
+            ],
+            "peso": 5,
+            "prompt_evaluacion": "Evalúa si la información adicional aporta valor y fortalece la postulación general."
+        }
+    },
+    "configuracion": {
+        "umbral_minimo_respuesta": 10,
+        "max_iteraciones_mejora": 3,
+        "longitud_minima_evaluativas": 50
+    }
+}

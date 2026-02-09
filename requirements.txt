@@ -1,0 +1,46 @@
+# Core web framework
+fastapi==0.115.14
+uvicorn==0.35.0
+starlette==0.46.2
+
+# Database
+sqlalchemy==2.0.42
+asyncpg==0.30.0
+pgvector==0.4.1
+
+# AI and LLM
+openai==1.99.1
+langgraph==0.2.76
+langgraph-checkpoint==2.1.1
+langgraph-sdk==0.1.74
+
+# Data validation and serialization
+pydantic==2.11.7
+pydantic-settings==2.10.1
+pydantic_core==2.33.2
+
+# Environment and configuration
+python-dotenv==1.1.1
+
+# WebSocket support
+websockets==15.0.1
+
+# Notifications
+twilio==8.13.0
+
+# Numerical computing (used in embeddings)
+numpy==2.3.2
+
+# CopilotKit integration
+copilotkit==0.1.39
+
+# Type hints
+typing-extensions==4.14.1
+
+# HTTP client (used in tests)
+aiohttp==3.12.15
+
+# Development tools
+ruff==0.12.7
+
+aiosqlite

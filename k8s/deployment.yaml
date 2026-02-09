@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ithaka-backend-deployment
+  namespace: ithaka-backend
+  labels:
+    app: ithaka-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ithaka-backend
+  template:
+    metadata:
+      labels:
+        app: ithaka-backend
+    spec:
+      containers:
+      - name: ithaka-backend
+        image: crretoxmas2024.azurecr.io/ithaka-backend:DevOps
+        ports:
+        - containerPort: 8000
+          name: http
+        envFrom:
+        - configMapRef:
+            name: ithaka-backend-config
+        - secretRef:
+            name: ithaka-backend-secret
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+      imagePullSecrets:
+      - name: acr-secret

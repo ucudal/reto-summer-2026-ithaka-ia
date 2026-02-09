@@ -1,0 +1,78 @@
+name: Deploy to Kubernetes
+
+on:
+  push:
+    branches:
+      - main      # Solo deploy automático en main
+  workflow_dispatch:  # Permite ejecutar manualmente desde GitHub
+
+env:
+  REGISTRY: crretoxmas2024.azurecr.io
+  IMAGE_NAME: ithaka-backend
+  NAMESPACE: ithaka-backend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'  # Solo en main
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+    
+    - name: Configure kubectl
+      run: |
+        kubectl config set-cluster ucu-cluster --server="${{ secrets.K8S_SERVER }}"
+        kubectl config set-credentials ucu-user --token="${{ secrets.K8S_TOKEN }}"
+        kubectl config set-context ucu-context --cluster=ucu-cluster --user=ucu-user
+        kubectl config use-context ucu-context
+    
+    - name: Test kubectl connection
+      run: kubectl get nodes
+    
+    - name: Create namespace
+      run: kubectl apply -f k8s/namespace.yaml
+    
+    - name: Create ACR secret
+      run: |
+        kubectl create secret docker-registry acr-secret \
+          --namespace=${{ env.NAMESPACE }} \
+          --docker-server=${{ env.REGISTRY }} \
+          --docker-username="${{ secrets.ACR_USERNAME }}" \
+          --docker-password="${{ secrets.ACR_PASSWORD }}" \
+          --dry-run=client -o yaml | kubectl apply -f -
+    
+    - name: Deploy ConfigMap
+      run: kubectl apply -f k8s/configmap.yaml
+    
+    - name: Deploy Application
+      run: |
+        # Update image tag to latest
+        sed -i 's|image: crretoxmas2024.azurecr.io/ithaka-backend:DevOps|image: crretoxmas2024.azurecr.io/ithaka-backend:latest|g' k8s/deployment.yaml
+        kubectl apply -f k8s/deployment.yaml
+    
+    - name: Deploy Service
+      run: kubectl apply -f k8s/service.yaml
+    
+    - name: Deploy ApisixRoute
+      run: kubectl apply -f k8s/apisix-route.yaml
+    
+    - name: Deploy HPA
+      run: kubectl apply -f k8s/hpa.yaml
+    
+    - name: Wait for deployment
+      run: kubectl rollout status deployment/ithaka-backend-deployment -n ${{ env.NAMESPACE }} --timeout=300s
+    
+    - name: Get deployment status
+      run: |
+        echo "Deployment completed!"
+        echo "Pod status:"
+        kubectl get pods -n ${{ env.NAMESPACE }}
+        echo ""
+        echo "Application URL: https://ithaka-backend.reto-ucu.net"
+        echo "API docs: https://ithaka-backend.reto-ucu.net/docs"

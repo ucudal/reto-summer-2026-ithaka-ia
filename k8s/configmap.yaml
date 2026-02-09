@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ithaka-backend-config
+  namespace: ithaka-backend
+  labels:
+    app: ithaka-backend
+data:
+  DATABASE_URL: "postgresql+asyncpg://reto-winter-2025-ithaka:D%21UrWMDV7LCz7Bh%21P%23AsPG7wP@postgres.reto-ucu.net:50001/reto-winter-2025-ithaka"
+  PYTHONPATH: "/app"
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
+  OPENAI_MODEL: "gpt-4o-mini"
+  OPENAI_EMBEDDING_MODEL: "text-embedding-3-small"
+  EMBEDDING_DIMENSION: "1536"
+  MAX_FAQ_RESULTS: "5"
+  WIZARD_SESSION_TIMEOUT: "3600"
+  LOG_LEVEL: "INFO"
+  EMAIL_HOST: "smtp.gmail.com"
+  EMAIL_PORT: "587"
+  TWILIO_WHATSAPP_NUMBER: "whatsapp:+14155238886"
