@@ -14,8 +14,6 @@ services:
       - PYTHONPATH=/app
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
-      # PostgreSQL (necesario para pgvector / faq_embeddings)
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/ithaka
     volumes:
       - ./app:/app/app:ro
       - ./data:/app/data
@@ -33,10 +31,12 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: ithaka-postgres
+    env_file:
+      - .env
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=ithaka
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-ithaka}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
