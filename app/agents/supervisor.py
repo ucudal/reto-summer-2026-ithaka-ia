@@ -1,6 +1,7 @@
 """
 Agente Supervisor - Router principal del sistema
 Analiza la intención del usuario y decide a qué agente derivar
+usando las descripciones de los nodos registrados.
 """
 
 import logging
@@ -8,13 +9,19 @@ import os
 
 from openai import AsyncOpenAI
 
+from ..graph.agent_descriptions import (
+    DEFAULT_AGENT,
+    ROUTABLE_AGENT_NAMES,
+    ROUTABLE_AGENTS,
+)
 from ..graph.state import ConversationState
 
 logger = logging.getLogger(__name__)
 
 
 class SupervisorAgent:
-    """Agente supervisor que analiza intenciones y rutea conversaciones"""
+    """Agente supervisor que rutea conversaciones basándose en las
+    descripciones de los agentes disponibles."""
 
     def __init__(self):
         api_key = os.getenv("OPENAI_API_KEY")
@@ -24,14 +31,19 @@ class SupervisorAgent:
         self.client = AsyncOpenAI(api_key=api_key)
         self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
+    # ------------------------------------------------------------------
+    # Public interface used by the LangGraph workflow
+    # ------------------------------------------------------------------
+
     async def route_message(self, state: ConversationState) -> ConversationState:
-        """Analiza el mensaje del usuario y decide el routing"""
-        chat_history = [m.content for m in state["messages"] if m.type == "human"]
+        """Analiza el mensaje del usuario y decide el routing."""
+
+        messages = state.get("messages", [])
+        chat_history = [m.content for m in messages if m.type == "human"]
         user_message = chat_history[-1].strip()
 
-        # SIMPLE FIX: Si hay wizard_state ACTIVO, mantener wizard
+        # 1. Estado: si hay wizard activo, mantenerlo sin llamar al LLM
         wizard_state_obj = state.get("wizard_state")
-
         if wizard_state_obj:
             wizard_status = wizard_state_obj.get("wizard_status", "INACTIVE")
             awaiting_answer = wizard_state_obj.get("awaiting_answer", False)
@@ -39,16 +51,11 @@ class SupervisorAgent:
 
             if wizard_session_id and (wizard_status == "ACTIVE" or awaiting_answer):
                 logger.info("Manteniendo wizard activo - session detectada")
-                return self._route_to_wizard(state)
+                return self._route_to(state, "wizard")
 
-        # Análisis de intención usando patrones simples primero
-        intention = self._analyze_intention_simple(user_message)
+        # 2. Routing basado 100% en LLM usando contexto conversacional completo
+        intention = await self._route_by_descriptions(user_message, messages)
 
-        # Si no hay claridad, usar IA para análisis más profundo
-        if intention == "unclear":
-            intention = await self._analyze_intention_with_ai(user_message, chat_history)
-
-        # Actualizar estado según la intención
         state["supervisor_decision"] = intention
         state["current_agent"] = intention
 
@@ -57,135 +64,121 @@ class SupervisorAgent:
 
         return state
 
-    def _analyze_intention_simple(self, message: str) -> str:
-        """Análisis simple de intención basado en palabras clave"""
+    def decide_next_agent(self, state: ConversationState) -> str:
+        """Decide el próximo agente en el flujo del grafo."""
 
-        # Patrones para wizard cuando esté disponible
-        wizard_keywords = [
-            # Acciones directas
-            "postular", "postulación", "inscribirme", "inscripcion", "inscripción",
-            # Intenciones naturales
-            "me quiero postular", "quiero postularme", "tengo una idea", "presentar una idea",
-            "tengo un proyecto", "quiero presentar un proyecto", "quiero aplicar",
-            # Contexto de emprendimiento
-            "emprender", "emprendimiento", "incubadora", "startup", "negocio",
-            # Formularios
-            "formulario"
-        ]
+        supervisor_decision = state.get("supervisor_decision")
 
-        # Patrones para FAQ
-        faq_keywords = [
-            "pregunta", "consulta", "información", "qué es", "cómo",
-            "cuándo", "dónde", "programa", "curso", "fellows", "minor",
-            "actividades", "contacto", "campus", "costo"
-        ]
+        if supervisor_decision in ROUTABLE_AGENT_NAMES:
+            return supervisor_decision
 
-        # Comandos del wizard cuando esté disponible
-        wizard_commands = ["volver", "cancelar"]
+        return DEFAULT_AGENT
 
-        # Verificar comandos del wizard cuando esté disponible
-        if any(cmd in message for cmd in wizard_commands):
-            return "wizard"
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
-        # Verificar patrones de postulación cuando wizard esté disponible
-        if any(keyword in message for keyword in wizard_keywords):
-            return "wizard"
-
-        # Verificar patrones de FAQ
-        if any(keyword in message for keyword in faq_keywords):
-            return "faq"
-
-        # Si no match, necesita análisis más profundo
-        return "unclear"
-
-    async def _analyze_intention_with_ai(self, message: str, history: list) -> str:
-        """Análisis de intención usando IA cuando no hay claridad"""
+    async def _route_by_descriptions(self, message: str, messages: list) -> str:
+        """Usa el LLM para elegir el agente cuya descripción mejor
+        coincide con la intención del usuario."""
 
         try:
-            # Construir contexto de la conversación
+            # Construir la sección de agentes disponibles
+            agents_block = "\n".join(
+                f'- "{name}": {description}'
+                for name, description in ROUTABLE_AGENTS
+            )
+            valid_names = ", ".join(
+                f'"{name}"' for name, _ in ROUTABLE_AGENTS
+            )
+
+            # Contexto conversacional completo (últimos turnos user/assistant)
             context = ""
-            if history:
-                # Últimos 3 mensajes para contexto
-                last_messages = history[-3:]
-                context = "\n".join(
-                    [f"{msg.role}: {msg.content}" for msg in last_messages])
+            if messages:
+                contextual_messages = messages[-6:]
+                context_lines = []
+                for msg in contextual_messages:
+                    role = "Usuario" if msg.type == "human" else "Asistente"
+                    context_lines.append(f"- {role}: {msg.content}")
+                context = "\n".join(context_lines)
 
-            prompt = f"""
-Analiza la intención del usuario en este mensaje y determina a qué agente debe dirigirse.
+            prompt = (
+                "Eres un router que analiza la intención del usuario y elige "
+                "el agente más adecuado.\n\n"
+                "AGENTES DISPONIBLES:\n"
+                f"{agents_block}\n\n"
+            )
 
-CONTEXTO DE CONVERSACIÓN:
-{context}
+            if context:
+                prompt += (
+                    "CONTEXTO (mensajes recientes de la conversación):\n"
+                    f"{context}\n\n"
+                )
 
-MENSAJE ACTUAL DEL USUARIO:
-"{message}"
-
-REGLAS DE CLASIFICACIÓN:
-- "faq" - SIEMPRE para preguntas sobre: programas (Fellows, minor), cursos, información de Ithaka, costos, convocatorias, campus, requisitos, actividades. Incluye preguntas indirectas como "podrías explicarme...", "sabes sobre...", "me gustaría saber..."
-- TODO: "validator" - SOLO para validar datos específicos cuando esté disponible
-- TODO: "wizard" - SOLO para postular ideas/proyectos cuando esté disponible
-
-EJEMPLOS:
-- "¿Qué es el programa Fellows?" → faq
-- "no se si podrías explicarme qué es el programa fellows?" → faq  
-- "sabes sobre los cursos de Ithaka?" → faq
-- TODO: "valida este email: test@test.com" → validator (cuando esté disponible)
-- TODO: "quiero postular mi idea" → wizard (cuando esté disponible)
-
-Responde ÚNICAMENTE con una palabra: faq
-"""
+            prompt += (
+                "MENSAJE ACTUAL DEL USUARIO:\n"
+                f'"{message}"\n\n'
+                "INSTRUCCIONES:\n"
+                "- Elige el agente cuya descripción mejor coincida con lo "
+                "que el usuario quiere hacer.\n"
+                "- Considera el contexto completo de la conversación.\n"
+                "- No uses heurísticas por palabras clave: interpreta la intención por el contexto.\n"
+                "- Si el usuario quiere iniciar postulación o responde afirmativamente a una invitación a iniciarla, elige wizard.\n"
+                f"- Responde ÚNICAMENTE con el nombre del agente: {valid_names}.\n"
+                "- No agregues explicación ni puntuación, solo el nombre."
+            )
 
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "Eres un router experto que analiza intenciones del usuario."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": (
+                            "Eres un router experto. Respondes únicamente con "
+                            "el nombre del agente elegido, sin explicación."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
                 ],
                 temperature=0.1,
-                max_tokens=10
+                max_tokens=10,
             )
 
             intention = response.choices[0].message.content.strip().lower()
 
-            # Validar respuesta
-            if intention in ["faq", "wizard"]:
+            if intention in ROUTABLE_AGENT_NAMES:
                 return intention
-            else:
-                logger.warning(f"Invalid AI intention response: {intention}")
-                return "faq"  # Default fallback
+
+            logger.warning(
+                f"LLM returned invalid agent name: '{intention}'. "
+                f"Falling back to '{DEFAULT_AGENT}'."
+            )
+            return DEFAULT_AGENT
 
         except Exception as e:
-            logger.error(f"Error in AI intention analysis: {e}")
-            return "faq"  # Safe fallback
+            logger.error(f"Error in description-based routing: {e}")
+            return DEFAULT_AGENT
 
-    def _route_to_wizard(self, state: ConversationState) -> ConversationState:
-        """Rutea específicamente al wizard"""
-        state["supervisor_decision"] = "wizard"
-        state["current_agent"] = "wizard"
+    @staticmethod
+    def _route_to(state: ConversationState, agent: str) -> ConversationState:
+        """Rutea directamente a un agente específico."""
+        state["supervisor_decision"] = agent
+        state["current_agent"] = agent
         return state
 
-    def decide_next_agent(self, state: ConversationState) -> str:
-        """Decide el próximo agente en el flujo del grafo"""
 
-        current_agent = state.get("current_agent", "supervisor")
-        supervisor_decision = state.get("supervisor_decision")
+# ------------------------------------------------------------------
+# Module-level instances & wrapper functions for LangGraph
+# ------------------------------------------------------------------
 
-        # Si hay decisión del supervisor, seguir esa ruta
-        if supervisor_decision in ["faq", "wizard"]:
-            return supervisor_decision
-
-        # Si no hay decisión clara, ir a FAQ como default
-        return "faq"
-
-
-# Instancia global del agente
 supervisor_agent = SupervisorAgent()
 
 
 async def route_message(state: ConversationState) -> ConversationState:
-    """Función wrapper para LangGraph"""
+    """Función wrapper para LangGraph."""
     return await supervisor_agent.route_message(state)
 
 
 def decide_next_agent_wrapper(state: ConversationState) -> str:
-    """Función wrapper para routing condicional en LangGraph"""
+    """Función wrapper para routing condicional en LangGraph."""
     return supervisor_agent.decide_next_agent(state)

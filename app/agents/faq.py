@@ -10,6 +10,7 @@ import numpy as np
 from langchain_core.messages import AIMessage
 from openai import AsyncOpenAI
 
+from .base import AgentNode
 from ..db.config.database import get_async_session
 from ..graph.state import ConversationState
 from ..services.embedding_service import embedding_service
@@ -27,8 +28,17 @@ def to_serializable(obj):
     return obj
 
 
-class FAQAgent:
+class FAQAgent(AgentNode):
     """Agente para responder preguntas frecuentes usando base vectorial"""
+
+    name = "faq"
+    description = (
+        "Responde preguntas sobre Ithaka: programas (Fellows, minor), "
+        "cursos, costos, campus, convocatorias, requisitos, actividades, "
+        "información general y preguntas frecuentes. Incluye cualquier "
+        "consulta informativa como '¿qué es...?', '¿cómo funciona...?', "
+        "'¿cuándo es...?', '¿dónde queda...?', contacto, etc."
+    )
 
     def __init__(self):
         api_key = os.getenv("OPENAI_API_KEY")
@@ -41,7 +51,7 @@ class FAQAgent:
         self.similarity_threshold = float(
             os.getenv("SIMILARITY_THRESHOLD", "0.4"))
 
-    async def handle_faq_query(self, state: ConversationState) -> ConversationState:
+    async def handle(self, state: ConversationState) -> ConversationState:
         """Procesa una consulta FAQ del usuario"""
 
         user_message = [m.content for m in state["messages"] if m.type == "human"][-1]
@@ -154,6 +164,7 @@ INSTRUCCIONES INTELIGENTES:
 5. **Natural**: Responde conversacionalmente, como si fueras un consejero experto
 6. **Proactivo**: Sugiere recursos adicionales y próximos pasos
 7. **Amigable**: Termina invitando a hacer más preguntas
+8. **Postulación directa**: Si la intención del usuario es postularse (ej: "quiero postularme", "quiero inscribirme", "quiero postular mi idea"), no preguntes "¿te gustaría saber más sobre eso?". En su lugar, ofrece iniciar la postulación directamente con una frase clara como "Si querés, iniciamos tu postulación ahora mismo."
 
 CONTEXTO ITHAKA:
 - Centro de emprendimiento de la Universidad Católica del Uruguay
@@ -221,6 +232,7 @@ GENERA UNA RESPUESTA INTELIGENTE QUE:
 3. **Sea proactiva**: Sugiere programas/servicios que podrían interesarle
 4. **Mantenga conversación**: Invita a hacer preguntas más específicas
 5. **Corrige sutilmente**: Si hay errores de tipeo, usa las palabras correctas en tu respuesta
+6. **Postulación directa**: Si el usuario quiere postularse, ofrece iniciar la postulación de forma directa y no uses la frase "¿te gustaría saber más sobre eso?".
 
 Respuesta útil e inteligente:
 """
@@ -258,9 +270,6 @@ Te sugiero:
 faq_agent = FAQAgent()
 
 
-# Función para usar en el grafo LangGraph
-
-
 async def handle_faq_query(state: ConversationState) -> ConversationState:
     """Función wrapper para LangGraph"""
-    return await faq_agent.handle_faq_query(state)
+    return await faq_agent.handle(state)
