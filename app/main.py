@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.conversations import router as conversations_router
 from app.api.v1.copilotkit_endpoint import router as copilotkit_router
+from app.api.v1.documents import router as documents_router
 from app.api.v1.scoring import router as scoring_router
 
 v1 = '/api/v1'
@@ -19,7 +20,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(conversations_router)
+app.include_router(conversations_router, prefix=v1, tags=["Conversations"])
+app.include_router(documents_router, prefix=v1, tags=["Documents"])
 app.include_router(scoring_router, prefix=v1, tags=["Scoring"])
 app.include_router(copilotkit_router, prefix=v1, tags=["CopilotKit"])
 
