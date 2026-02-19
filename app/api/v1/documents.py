@@ -58,7 +58,6 @@ def _read_csv_content(content: bytes) -> str:
     if lines:
         return "\n".join(lines)
 
-    # Fallback for CSV without headers
     return text
 
 
