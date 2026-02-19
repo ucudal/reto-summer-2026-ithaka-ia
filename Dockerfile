@@ -10,6 +10,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Set work directory
 WORKDIR /app
 
+# Pin uv to a trusted version; bump deliberately during dependency maintenance.
+ARG UV_VERSION=0.5.31
+
 # Install system dependencies
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -19,7 +22,7 @@ RUN apt-get update \
 
 # Install Python dependencies with uv
 COPY requirements.txt .
-RUN pip install --no-cache-dir uv \
+RUN pip install --no-cache-dir "uv==${UV_VERSION}" \
     && uv pip install --system -r requirements.txt
 
 # Copy project
