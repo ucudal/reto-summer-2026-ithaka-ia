@@ -1,126 +1,18 @@
-from datetime import datetime
-from io import BytesIO
-import csv
-from typing import Optional
-
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.schemas.documents import (
+    DocumentCreate,
+    DocumentResponse,
+    DocumentUploadResponse,
+)
 from app.db.config.database import get_async_session
 from app.db.models import FAQEmbedding
+from app.services.document_ingestion_service import document_ingestion_service
 from app.services.embedding_service import embedding_service
 
 router = APIRouter()
-
-
-class DocumentCreate(BaseModel):
-    question: str = Field(..., min_length=3, description="Pregunta o titulo del documento")
-    answer: str = Field(..., min_length=3, description="Respuesta o contenido del documento")
-
-
-class DocumentResponse(BaseModel):
-    id: int
-    question: str
-    answer: str
-    created_at: Optional[datetime]
-
-
-class DocumentUploadResponse(BaseModel):
-    filename: str
-    file_type: str
-    chunks_created: int
-    document_ids: list[int]
-
-
-def _read_txt_like(content: bytes) -> str:
-    for encoding in ("utf-8", "latin-1"):
-        try:
-            return content.decode(encoding)
-        except UnicodeDecodeError:
-            continue
-    raise HTTPException(status_code=400, detail="No se pudo decodificar el archivo")
-
-
-def _read_csv_content(content: bytes) -> str:
-    text = _read_txt_like(content)
-    reader = csv.DictReader(text.splitlines())
-    lines: list[str] = []
-
-    for row in reader:
-        rendered = ", ".join(
-            f"{column}: {value}" for column, value in row.items() if value is not None
-        )
-        if rendered:
-            lines.append(rendered)
-
-    if lines:
-        return "\n".join(lines)
-
-    return text
-
-
-def _read_pdf_content(content: bytes) -> str:
-    try:
-        from pypdf import PdfReader
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="Falta dependencia para PDF: instala pypdf"
-        ) from exc
-
-    try:
-        reader = PdfReader(BytesIO(content))
-        pages = [page.extract_text() or "" for page in reader.pages]
-        text = "\n".join(page.strip() for page in pages if page and page.strip())
-        if not text:
-            raise HTTPException(
-                status_code=400,
-                detail="No se pudo extraer texto del PDF"
-            )
-        return text
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="PDF invalido o corrupto") from exc
-
-
-def _split_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
-    cleaned = text.strip()
-    if not cleaned:
-        return []
-
-    chunks: list[str] = []
-    start = 0
-    text_length = len(cleaned)
-
-    while start < text_length:
-        end = min(start + chunk_size, text_length)
-        chunk = cleaned[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        if end >= text_length:
-            break
-        start = end - chunk_overlap
-
-    return chunks
-
-
-def _extract_file_text(filename: str, content: bytes) -> tuple[str, str]:
-    extension = filename.rsplit(".", maxsplit=1)[-1].lower() if "." in filename else ""
-
-    if extension in {"txt", "md"}:
-        return extension, _read_txt_like(content)
-    if extension == "csv":
-        return extension, _read_csv_content(content)
-    if extension == "pdf":
-        return extension, _read_pdf_content(content)
-
-    raise HTTPException(
-        status_code=400,
-        detail="Formato no soportado. Usa pdf, txt, md o csv"
-    )
 
 
 @router.post("/documents", response_model=DocumentResponse, status_code=201)
@@ -173,11 +65,15 @@ async def upload_document(
     if not content:
         raise HTTPException(status_code=400, detail="Archivo vacio")
 
-    if len(content) > 20 * 1024 * 1024:
+    if len(content) > document_ingestion_service.max_file_size_bytes:
         raise HTTPException(status_code=400, detail="Archivo demasiado grande (max 20MB)")
 
-    file_type, text = _extract_file_text(file.filename, content)
-    chunks = _split_text(text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    file_type, text = document_ingestion_service.extract_file_text(file.filename, content)
+    chunks = document_ingestion_service.split_text(
+        text,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+    )
 
     if not chunks:
         raise HTTPException(status_code=400, detail="No se encontro texto util en el archivo")

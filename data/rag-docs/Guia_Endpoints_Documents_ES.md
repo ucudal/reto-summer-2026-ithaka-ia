@@ -1,6 +1,6 @@
 # Ithaka IA - Guia de Endpoints: Documents
 
-Version: 1.0
+Version: 1.2
 
 ## 1. Alcance
 
@@ -21,6 +21,7 @@ Estos endpoints permiten gestionar contenido de conocimiento para el sistema **R
 Request de `POST /documents`.
 
 | Campo | Tipo | Requerido | Restricciones |
+|---|---|---|---|
 | `question` | string | Si | Minimo 3 caracteres |
 | `answer` | string | Si | Minimo 3 caracteres |
 
@@ -198,3 +199,23 @@ Eliminar un documento especifico por ID.
   - `python-multipart`
   - `pypdf`
 - Recomendado: proteger `create`, `upload` y `delete` con autenticacion y control de roles.
+
+## 10. Arquitectura tecnica (implementacion actual)
+
+- Router HTTP de Documents: `app/api/v1/documents.py`.
+- Schemas Pydantic de Documents: `app/api/v1/schemas/documents.py`.
+- Servicio de ingesta de archivos (extraccion + chunking): `app/services/document_ingestion_service.py`.
+- Servicio de embeddings (OpenAI + persistencia FAQ): `app/services/embedding_service.py`.
+
+### 10.1 Separacion de responsabilidades
+
+- `documents.py`: solo orquesta request/response, validaciones de API y transacciones.
+- `schemas/documents.py`: centraliza contratos de entrada y salida.
+- `document_ingestion_service.py`: concentra parsing por formato (`pdf`, `txt`, `md`, `csv`) y split de texto.
+- `embedding_service.py`: genera embeddings y soporta operaciones sobre `faq_embeddings`.
+
+### 10.2 Implicancias para integracion con otros equipos
+
+- Si cambian contratos API, se modifica `schemas/documents.py`.
+- Si agregan nuevos formatos de archivo, se extiende `document_ingestion_service.py`.
+- Si cambian proveedor/modelo de embeddings, se ajusta `embedding_service.py` sin tocar endpoints.
