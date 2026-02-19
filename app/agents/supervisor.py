@@ -6,7 +6,10 @@ usando las descripciones de los nodos registrados.
 
 import logging
 import os
+from pathlib import Path
 
+import yaml
+from jinja2 import Environment, FileSystemLoader
 from openai import AsyncOpenAI
 
 from ..graph.agent_descriptions import (
@@ -17,6 +20,10 @@ from ..graph.agent_descriptions import (
 from ..graph.state import ConversationState
 
 logger = logging.getLogger(__name__)
+
+_AGENTS_DIR = Path(__file__).parent
+_config = yaml.safe_load((_AGENTS_DIR / "config" / "supervisor.yaml").read_text())
+_prompts = Environment(loader=FileSystemLoader(str(_AGENTS_DIR / "prompts")), keep_trailing_newline=True)
 
 
 class SupervisorAgent:
@@ -95,53 +102,27 @@ class SupervisorAgent:
             # Contexto conversacional completo (últimos turnos user/assistant)
             context = ""
             if messages:
-                contextual_messages = messages[-6:]
-                context_lines = []
-                for msg in contextual_messages:
-                    role = "Usuario" if msg.type == "human" else "Asistente"
-                    context_lines.append(f"- {role}: {msg.content}")
-                context = "\n".join(context_lines)
-
-            prompt = (
-                "Eres un router que analiza la intención del usuario y elige "
-                "el agente más adecuado.\n\n"
-                "AGENTES DISPONIBLES:\n"
-                f"{agents_block}\n\n"
-            )
-
-            if context:
-                prompt += (
-                    "CONTEXTO (mensajes recientes de la conversación):\n"
-                    f"{context}\n\n"
+                context = "\n".join(
+                    f"- {'Usuario' if msg.type == 'human' else 'Asistente'}: {msg.content}"
+                    for msg in messages[-6:]
                 )
 
-            prompt += (
-                "MENSAJE ACTUAL DEL USUARIO:\n"
-                f'"{message}"\n\n'
-                "INSTRUCCIONES:\n"
-                "- Elige el agente cuya descripción mejor coincida con lo "
-                "que el usuario quiere hacer.\n"
-                "- Considera el contexto completo de la conversación.\n"
-                "- No uses heurísticas por palabras clave: interpreta la intención por el contexto.\n"
-                "- Si el usuario quiere iniciar postulación o responde afirmativamente a una invitación a iniciarla, elige wizard.\n"
-                f"- Responde ÚNICAMENTE con el nombre del agente: {valid_names}.\n"
-                "- No agregues explicación ni puntuación, solo el nombre."
+            prompt = _prompts.get_template("supervisor_route.j2").render(
+                agents_block=agents_block,
+                valid_names=valid_names,
+                message=message,
+                context=context,
             )
 
+            model_cfg = _config["model"]
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "Eres un router experto. Respondes únicamente con "
-                            "el nombre del agente elegido, sin explicación."
-                        ),
-                    },
+                    {"role": "system", "content": _prompts.get_template("supervisor_system.j2").render()},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.1,
-                max_tokens=10,
+                temperature=model_cfg["temperature"],
+                max_tokens=model_cfg["max_tokens"],
             )
 
             intention = response.choices[0].message.content.strip().lower()

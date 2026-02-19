@@ -17,13 +17,13 @@ class AgentNode(ABC):
         name        – short identifier used as the graph node key (e.g. "faq").
         description – natural-language purpose used by the supervisor to route
                       user messages to the right agent.
-        handle()    – async entry point that LangGraph invokes.
+        __call__()  – async entry point that LangGraph invokes.
     """
 
     name: str
     description: str
 
     @abstractmethod
-    async def handle(self, state: ConversationState) -> ConversationState:
+    async def __call__(self, state: ConversationState) -> ConversationState:
         """Process the current conversation state and return the updated state."""
         ...

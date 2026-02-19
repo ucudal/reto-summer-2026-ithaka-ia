@@ -7,24 +7,24 @@ description.
 """
 
 import uuid
+from pathlib import Path
+
+import yaml
 
 from .base import AgentNode
 from ..graph.state import ConversationState
 from .wizard_workflow.wizard_graph import wizard_graph
 
+_config = yaml.safe_load((Path(__file__).parent / "config" / "wizard.yaml").read_text())
+
 
 class WizardAgent(AgentNode):
     """Guía al usuario a través del proceso de postulación de Ithaka."""
 
-    name = "wizard"
-    description = (
-        "Guía al usuario a través del proceso de postulación/aplicación: "
-        "postular una idea o proyecto, inscripción, formulario de "
-        "postulación, emprendimiento, incubadora, startup. También maneja "
-        "comandos de navegación del formulario como 'volver' o 'cancelar'."
-    )
+    name: str = _config["name"]
+    description: str = _config["description"]
 
-    async def handle(self, state: ConversationState) -> ConversationState:
+    async def __call__(self, state: ConversationState) -> ConversationState:
         """Ejecuta el sub-grafo del wizard y devuelve el estado actualizado."""
 
         wizard_state = state.get("wizard_state")
@@ -70,4 +70,4 @@ wizard_agent = WizardAgent()
 
 async def handle_wizard_flow(state: ConversationState) -> ConversationState:
     """Función wrapper para LangGraph."""
-    return await wizard_agent.handle(state)
+    return await wizard_agent(state)

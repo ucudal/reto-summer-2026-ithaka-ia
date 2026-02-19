@@ -1,0 +1,6 @@
+name: wizard
+description: >-
+  Guía al usuario a través del proceso de postulación/aplicación:
+  postular una idea o proyecto, inscripción, formulario de
+  postulación, emprendimiento, incubadora, startup. También maneja
+  comandos de navegación del formulario como 'volver' o 'cancelar'.
