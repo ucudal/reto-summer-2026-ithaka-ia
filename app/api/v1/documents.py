@@ -9,6 +9,7 @@ from app.api.v1.schemas.documents import (
 )
 from app.db.config.database import get_async_session
 from app.db.models import FAQEmbedding
+from app.security.auth import AuthUser, require_admin_user
 from app.services.document_ingestion_service import document_ingestion_service
 from app.services.embedding_service import embedding_service
 
@@ -18,6 +19,7 @@ router = APIRouter()
 @router.post("/documents", response_model=DocumentResponse, status_code=201)
 async def create_document(
         document: DocumentCreate,
+        _current_user: AuthUser = Depends(require_admin_user),
         session: AsyncSession = Depends(get_async_session)
 ) -> DocumentResponse:
     try:
@@ -50,6 +52,7 @@ async def upload_document(
         file: UploadFile = File(...),
         chunk_size: int = Query(1200, ge=200, le=4000),
         chunk_overlap: int = Query(150, ge=0, le=1000),
+        _current_user: AuthUser = Depends(require_admin_user),
         session: AsyncSession = Depends(get_async_session)
 ) -> DocumentUploadResponse:
     if not file.filename:
@@ -59,6 +62,11 @@ async def upload_document(
         raise HTTPException(
             status_code=400,
             detail="chunk_overlap debe ser menor que chunk_size"
+        )
+    if chunk_overlap * 2 >= chunk_size:
+        raise HTTPException(
+            status_code=400,
+            detail="chunk_overlap debe ser menor al 50% de chunk_size"
         )
 
     content = await file.read()
@@ -136,6 +144,7 @@ async def list_documents(
 @router.delete("/documents/{document_id}")
 async def delete_document(
         document_id: int,
+        _current_user: AuthUser = Depends(require_admin_user),
         session: AsyncSession = Depends(get_async_session)
 ) -> dict:
     try:

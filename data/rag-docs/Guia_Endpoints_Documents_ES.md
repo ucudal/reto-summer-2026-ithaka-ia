@@ -103,6 +103,7 @@ Subir un archivo, extraer su texto, dividirlo en fragmentos (chunks), generar em
 - El archivo no puede estar vacio.
 - Tamano maximo permitido: `20 MB`.
 - `chunk_overlap` debe ser menor que `chunk_size`.
+- `chunk_overlap` debe ser menor al `50%` de `chunk_size` para evitar fragmentos excesivamente redundantes.
 - Extensiones permitidas: `pdf`, `txt`, `md`, `csv`.
 - El archivo debe contener texto procesable.
 
