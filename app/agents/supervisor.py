@@ -4,6 +4,7 @@ Analiza la intención del usuario y decide a qué agente derivar
 usando las descripciones de los nodos registrados.
 """
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -125,7 +126,12 @@ class SupervisorAgent:
                 max_tokens=model_cfg["max_tokens"],
             )
 
-            intention = response.choices[0].message.content.strip().lower()
+            raw = response.choices[0].message.content.strip()
+            parsed = json.loads(raw)
+            intention = parsed.get("agent", "").strip().lower()
+            reasoning = parsed.get("reasoning", "")
+
+            logger.debug(f"Supervisor reasoning: {reasoning}")
 
             if intention in ROUTABLE_AGENT_NAMES:
                 return intention

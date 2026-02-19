@@ -16,5 +16,5 @@ INSTRUCCIONES:
 - Considera el contexto completo de la conversación.
 - No uses heurísticas por palabras clave: interpreta la intención por el contexto.
 - Si el usuario quiere iniciar postulación o responde afirmativamente a una invitación a iniciarla, elige wizard.
-- Responde ÚNICAMENTE con el nombre del agente: {{ valid_names }}.
-- No agregues explicación ni puntuación, solo el nombre.
+- El campo "agent" debe ser exactamente uno de: {{ valid_names }}.
+- Responde ÚNICAMENTE con el JSON, sin bloques de código ni texto adicional.
