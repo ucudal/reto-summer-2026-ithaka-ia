@@ -33,18 +33,6 @@ class EmbeddingService:
             logger.error(f"Error generating embedding: {e}")
             raise
 
-    async def generate_batch_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Genera embeddings para múltiples textos en batch"""
-        try:
-            response = await self.client.embeddings.create(
-                model=self.model,
-                input=texts
-            )
-            return [data.embedding for data in response.data]
-        except Exception as e:
-            logger.error(f"Error generating batch embeddings: {e}")
-            raise
-
     async def search_similar_faqs(
             self,
             query: str,

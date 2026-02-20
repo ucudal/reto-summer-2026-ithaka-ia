@@ -2,8 +2,6 @@
 Preguntas del wizard de postulación de Ithaka
 """
 
-from typing import Any, Optional
-
 # Preguntas del wizard organizadas por categorías
 WIZARD_QUESTIONS = {
     # Preguntas 1-11: Datos Personales (Obligatorias)
@@ -171,38 +169,3 @@ WIZARD_QUESTIONS = {
         "field_name": "additional_info"
     }
 }
-
-
-def get_question(question_number: int) -> Optional[dict[str, Any]]:
-    """Obtiene una pregunta específica por número"""
-    return WIZARD_QUESTIONS.get(question_number, {})
-
-
-def get_questions_by_type(question_type: str) -> dict[int, dict[str, Any]]:
-    """Obtiene todas las preguntas de un tipo específico"""
-    return {
-        num: question for num, question in WIZARD_QUESTIONS.items()
-        if question.get("type") == question_type
-    }
-
-
-def is_conditional_question(question_number: int, responses: dict[str, Any]) -> bool:
-    """Verifica si una pregunta condicional debe mostrarse"""
-    question = get_question(question_number)
-
-    if not question.get("conditional", False):
-        return True
-
-    condition_field = question.get("condition_field")
-    condition_values = question.get("condition_values", [])
-
-    if not condition_field or not condition_values:
-        return True
-
-    user_response = responses.get(condition_field)
-    return user_response in condition_values
-
-
-def should_continue_after_question_11(responses: dict[str, Any]) -> bool:
-    """Determina si continuar con preguntas evaluativas después de la 11"""
-    return responses.get("has_idea") == "SI"
