@@ -3,7 +3,6 @@ Workflow principal de LangGraph para orquestar todos los agentes del sistema Ith
 """
 
 import logging
-from datetime import datetime
 from typing import Any
 import uuid
 
@@ -12,10 +11,11 @@ from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
 from langchain_core.messages import HumanMessage
 
+from .agent_descriptions import ROUTABLE_AGENTS
 from .state import ConversationState
 from ..agents.faq import handle_faq_query
 from ..agents.supervisor import route_message, decide_next_agent_wrapper
-from ..agents.wizard_workflow.wizard_graph import wizard_graph
+from ..agents.wizard_node import handle_wizard_flow
 
 logger = logging.getLogger(__name__)
 
@@ -34,35 +34,22 @@ class IthakaWorkflow:
 
         # Agregar nodos (agentes)
         workflow.add_node("supervisor", route_message)
-        # workflow.add_node("wizard", handle_wizard_flow)
-
-        workflow.add_node("wizard", handle_wizard_flow_good)
-
+        workflow.add_node("wizard", handle_wizard_flow)
         workflow.add_node("faq", handle_faq_query)
 
         # Definir punto de entrada
         workflow.set_entry_point("supervisor")
 
-        # Agregar bordes condicionales desde el supervisor
+        # Agregar bordes condicionales desde el supervisor.
+        # El mapa se construye desde ROUTABLE_AGENTS (single source of truth).
+        edges = {name: name for name, _ in ROUTABLE_AGENTS}
+        edges["end"] = END
+
         workflow.add_conditional_edges(
             "supervisor",
             decide_next_agent_wrapper,
-            {
-                "wizard": "wizard",
-                "faq": "faq",
-                "end": END
-            }
+            edges,
         )
-
-        # El wizard puede continuar consigo mismo o terminar
-        # workflow.add_conditional_edges(
-        #     "wizard",
-        #     self._wizard_should_continue,
-        #     {
-        #         "continue": "wizard",
-        #         "end": END
-        #     }
-        # )
 
         # Los otros agentes terminan el flujo
         workflow.add_edge("wizard", END)
@@ -70,23 +57,6 @@ class IthakaWorkflow:
 
         # Compilar el grafo
         return workflow.compile(checkpointer=InMemorySaver())
-
-    def _wizard_should_continue(self, state: ConversationState) -> str:
-        """Determina si el wizard debe continuar o terminar"""
-        wizard_state = state.get("wizard_state", "INACTIVE")
-        next_action = state.get("next_action", "complete")
-
-        # Si está completado o hay error, terminar
-        if wizard_state in ["COMPLETED", "ERROR"]:
-            return "end"
-
-        # Si el wizard está activo y necesita enviar respuesta, terminar (no continuar)
-        # El wizard debe terminar después de procesar la respuesta del usuario
-        if wizard_state == "ACTIVE" and next_action == "send_response":
-            return "end"
-
-        # Si no hay decisión clara, terminar
-        return "end"
 
     def _create_initial_state(
             self,
@@ -134,7 +104,8 @@ class IthakaWorkflow:
     async def process_message(
             self,
             user_message: str,
-            wizard_state: dict[str, Any] = None
+            wizard_state: dict[str, Any] = None,
+            thread_id: str = "default"
     ) -> dict[str, Any]:
         """Procesa un mensaje del usuario a través del grafo de agentes"""
 
@@ -145,8 +116,25 @@ class IthakaWorkflow:
                 wizard_state=wizard_state
             )
 
+            logger.debug("=" * 80)
+            logger.debug("[WORKFLOW] process_message called")
+            logger.debug(f"[WORKFLOW] User message: {user_message!r}")
+            logger.debug(f"[WORKFLOW] Thread ID: {thread_id}")
+            logger.debug(f"[WORKFLOW] Incoming wizard_state: {wizard_state}")
+            logger.debug(f"[WORKFLOW] Initial state keys: {list(initial_state.keys())}")
+            ws = initial_state.get("wizard_state", {})
+            logger.debug(f"[WORKFLOW] Initial wizard_state: status={ws.get('wizard_status')}, "
+                         f"question={ws.get('current_question')}, "
+                         f"awaiting={ws.get('awaiting_answer')}, "
+                         f"completed={ws.get('completed')}")
+
             logger.info(f"Processing message: {user_message[:50]}...")
-            result = await self.graph.ainvoke(initial_state)
+            config = {"configurable": {"thread_id": thread_id}}
+            result = await self.graph.ainvoke(initial_state, config=config)
+
+            logger.debug(f"[WORKFLOW] Graph result keys: {list(result.keys())}")
+            logger.debug(f"[WORKFLOW] Result current_agent: {result.get('current_agent')}")
+            logger.debug(f"[WORKFLOW] Result agent_context: {result.get('agent_context')}")
 
             # Extraer información relevante del resultado
             wizard_state_obj = result.get("wizard_state")
@@ -157,6 +145,9 @@ class IthakaWorkflow:
 
             # Si hay wizard state, extraer sus campos
             if wizard_state_obj:
+                logger.debug(f"[WORKFLOW] Result wizard_state: status={wizard_state_obj.get('wizard_status')}, "
+                             f"question={wizard_state_obj.get('current_question')}, "
+                             f"completed={wizard_state_obj.get('completed')}")
                 response_data.update({
                     "wizard_session_id": wizard_state_obj.get("wizard_session_id"),
                     "wizard_state": wizard_state_obj.get("wizard_status", "INACTIVE"),
@@ -165,6 +156,7 @@ class IthakaWorkflow:
                     "awaiting_answer": wizard_state_obj.get("awaiting_answer", False)
                 })
             else:
+                logger.debug("[WORKFLOW] No wizard_state in result")
                 response_data.update({
                     "wizard_session_id": None,
                     "wizard_state": "INACTIVE",
@@ -173,11 +165,12 @@ class IthakaWorkflow:
                     "awaiting_answer": False
                 })
 
-            logger.info(f"Message processed successfully by {response_data['agent_used']}")
+            logger.info(f"[WORKFLOW] Message processed by {response_data['agent_used']}")
+            logger.debug(f"[WORKFLOW] Final response (first 200 chars): {response_data['response'][:200]!r}")
             return response_data
 
         except Exception as e:
-            logger.error(f"Error processing message through workflow: {e}")
+            logger.error(f"[WORKFLOW] Error processing message: {e}", exc_info=True)
             return {
                 "response": "Lo siento, tuve un problema técnico procesando tu mensaje. ¿Podrías intentar de nuevo?",
                 "agent_used": "error_handler",
@@ -187,40 +180,3 @@ class IthakaWorkflow:
                 "awaiting_answer": False,
                 "error": str(e)
             }
-
-
-async def handle_wizard_flow_good(state: dict) -> dict:
-    """Maneja el flujo del wizard de manera correcta"""
-
-    # Extraer el wizard_state del ConversationState
-    wizard_state = state.get("wizard_state")
-
-    if not wizard_state:
-        # Si no hay wizard_state, crear uno por defecto
-        import uuid
-        wizard_state = {
-            "wizard_session_id": str(uuid.uuid4()),
-            "current_question": 1,  # Cambiar de 0 a 1 para coincidir con WIZARD_QUESTIONS
-            "answers": [],
-            "wizard_responses": {},
-            "wizard_status": "ACTIVE",
-            "awaiting_answer": False,
-            "messages": state.get("messages", []),
-            "completed": False,
-            "valid": False  # Agregar campo valid
-        }
-    else:
-        # Asegurar que tiene los mensajes del ConversationState
-        wizard_state = dict(wizard_state)  # Hacer una copia
-        wizard_state["messages"] = state.get("messages", [])
-
-    # Pasar solo el wizard_state al wizard_graph
-    result = await wizard_graph.ainvoke(wizard_state)
-
-    # Actualizar el ConversationState con el resultado del wizard
-    return {
-        **state,  # Mantener campos del ConversationState
-        "wizard_state": result,  # Actualizar con resultado del wizard
-        "messages": result.get("messages", []),  # Usar los mensajes del wizard para el frontend
-        "agent_context": {"response": result.get("messages", [])[-1].content if result.get("messages") else ""}
-    }

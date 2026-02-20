@@ -8,7 +8,7 @@ from typing import Any, Optional
 WIZARD_QUESTIONS = {
     # Preguntas 1-11: Datos Personales (Obligatorias)
     1: {
-        "text": "¡Hola! Bienvenido/a al proceso de postulación de Ithaka 🚀\n\nComencemos con tus datos personales.\n\n**Apellido, Nombre**\n\nPor favor, ingresa tu apellido y nombre completo:",
+        "text": "Comencemos el proceso de postulación de Ithaka 🚀\n\nComencemos con tus datos personales.\n\n**Apellido, Nombre**\n\nPor favor, ingresa tu apellido y nombre completo:",
         "type": "personal",
         "required": True,
         "validation": "name",

@@ -1,0 +1,17 @@
+name: faq
+description: >-
+  Responde preguntas sobre Ithaka: programas (Fellows, minor),
+  cursos, costos, campus, convocatorias, requisitos, actividades,
+  información general y preguntas frecuentes. Incluye cualquier
+  consulta informativa como '¿qué es...?', '¿cómo funciona...?',
+  '¿cuándo es...?', '¿dónde queda...?', contacto, etc.
+
+model:
+  temperature_contextual: 0.0
+  temperature_no_results: 0.0
+  max_tokens_contextual: 400
+  max_tokens_no_results: 200
+
+system_prompts:
+  contextual: "Eres el asistente virtual oficial de Ithaka, centro de emprendimiento de la UCU. Respondes consultas de manera amigable y precisa."
+  no_results: "Eres el asistente de Ithaka. Ayuda al usuario incluso cuando no tienes información específica."

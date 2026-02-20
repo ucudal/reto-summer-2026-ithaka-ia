@@ -4,17 +4,25 @@ Agente FAQ - Responde preguntas frecuentes usando búsqueda vectorial
 
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 import numpy as np
+import yaml
+from jinja2 import Environment, FileSystemLoader
 from langchain_core.messages import AIMessage
 from openai import AsyncOpenAI
 
+from .base import AgentNode
 from ..db.config.database import get_async_session
 from ..graph.state import ConversationState
 from ..services.embedding_service import embedding_service
 
 logger = logging.getLogger(__name__)
+
+_AGENTS_DIR = Path(__file__).parent
+_config = yaml.safe_load((_AGENTS_DIR / "config" / "faq.yaml").read_text())
+_prompts = Environment(loader=FileSystemLoader(str(_AGENTS_DIR / "prompts")), keep_trailing_newline=True)
 
 
 def to_serializable(obj):
@@ -27,8 +35,11 @@ def to_serializable(obj):
     return obj
 
 
-class FAQAgent:
+class FAQAgent(AgentNode):
     """Agente para responder preguntas frecuentes usando base vectorial"""
+
+    name: str = _config["name"]
+    description: str = _config["description"]
 
     def __init__(self):
         api_key = os.getenv("OPENAI_API_KEY")
@@ -41,10 +52,18 @@ class FAQAgent:
         self.similarity_threshold = float(
             os.getenv("SIMILARITY_THRESHOLD", "0.4"))
 
-    async def handle_faq_query(self, state: ConversationState) -> ConversationState:
+    async def __call__(self, state: ConversationState) -> ConversationState:
         """Procesa una consulta FAQ del usuario"""
 
-        user_message = [m.content for m in state["messages"] if m.type == "human"][-1]
+        messages = state.get("messages", [])
+        user_message = [m.content for m in messages if m.type == "human"][-1]
+        # Build conversation history excluding the current user message (last one)
+        history = messages[:-1] if messages else []
+
+        logger.debug("=" * 60)
+        logger.debug("[FAQ] __call__ invoked")
+        logger.debug(f"[FAQ] User message: {user_message!r}")
+        logger.debug(f"[FAQ] similarity_threshold={self.similarity_threshold}, max_results={self.max_results}")
 
         try:
             # Obtener sesión de base de datos
@@ -57,10 +76,15 @@ class FAQAgent:
                     similarity_threshold=self.similarity_threshold
                 )
 
+                logger.debug(f"[FAQ] Found {len(similar_faqs)} similar FAQs")
+                for i, faq in enumerate(similar_faqs):
+                    logger.debug(f"[FAQ]   faq[{i}] similarity={faq.get('similarity', '?'):.3f} "
+                                 f"q={faq.get('question', '')[:80]!r}")
+
                 if similar_faqs:
                     # Generar respuesta contextualizada con las FAQs encontradas
                     response = await self._generate_contextual_response(
-                        user_message, similar_faqs
+                        user_message, similar_faqs, history
                     )
 
                     state["faq_results"] = to_serializable(similar_faqs)
@@ -69,7 +93,7 @@ class FAQAgent:
 
                 else:
                     # No se encontraron FAQs relevantes
-                    response = await self._generate_no_results_response(user_message)
+                    response = await self._generate_no_results_response(user_message, history)
 
                     state["faq_results"] = []
                     state["next_action"] = "send_response"
@@ -123,144 +147,116 @@ Mientras tanto, puedes:
     async def _generate_contextual_response(
             self,
             user_query: str,
-            similar_faqs: list[dict[str, Any]]
+            similar_faqs: list[dict[str, Any]],
+            history: list = None,
     ) -> str:
         """Genera una respuesta contextualizada basada en FAQs similares"""
 
         try:
-            # Preparar contexto de FAQs
             faq_context = ""
             for i, faq in enumerate(similar_faqs, 1):
-                faq_context += f"""
-FAQ {i} (similitud: {faq['similarity']:.2f}):
-Pregunta: {faq['question']}
-Respuesta: {faq['answer']}
-"""
+                faq_context += (
+                    f"\nFAQ {i} (similitud: {faq['similarity']:.2f}):\n"
+                    f"Pregunta: {faq['question']}\n"
+                    f"Respuesta: {faq['answer']}\n"
+                )
 
-            prompt = f"""
-Eres el asistente virtual inteligente de Ithaka (centro de emprendimiento UCU). Tu misión es ayudar de la manera más útil posible.
-
-CONSULTA DEL USUARIO:
-"{user_query}"
-
-INFORMACIÓN RELEVANTE ENCONTRADA:
-{faq_context}
-
-INSTRUCCIONES INTELIGENTES:
-1. **Flexibilidad**: Interpreta la intención aunque haya errores de tipeo ("corsos" = "cursos", "ithaka" mal escrito, etc.)
-2. **Contextualidad**: Si preguntan sobre temas relacionados a emprendimiento/universidad, conecta con lo que ofrece Ithaka
-3. **Inteligencia**: Aunque la pregunta no sea exacta, infiere qué información necesita (ej: "qué hacen" → explica programas y servicios)
-4. **Completitud**: Da información útil incluso si no hay coincidencia perfecta
-5. **Natural**: Responde conversacionalmente, como si fueras un consejero experto
-6. **Proactivo**: Sugiere recursos adicionales y próximos pasos
-7. **Amigable**: Termina invitando a hacer más preguntas
-
-CONTEXTO ITHAKA:
-- Centro de emprendimiento de la Universidad Católica del Uruguay
-- Ofrece: cursos, minor de emprendimiento, programa Fellows, incubadora
-- Todo gratuito para comunidad UCU
-- Abierto también a emprendedores externos
-- Foco en innovación, emprendimiento e impacto social
-
-RESPUESTA INTELIGENTE:
-"""
-
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Eres el asistente virtual oficial de Ithaka, centro de emprendimiento de la UCU. Respondes consultas de manera amigable y precisa."
-                    },
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=400
+            prompt = _prompts.get_template("faq_contextual.j2").render(
+                user_query=user_query,
+                faq_context=faq_context,
             )
 
-            return response.choices[0].message.content
+            system_content = _config["system_prompts"]["contextual"]
+            logger.debug("-" * 60)
+            logger.debug("[FAQ] Contextual LLM call")
+            logger.debug(f"[FAQ] FAQ context passed to prompt:\n{faq_context}")
+            logger.debug(f"[FAQ] System prompt:\n{system_content}")
+            logger.debug(f"[FAQ] User prompt:\n{prompt}")
+
+            chat_messages = [{"role": "system", "content": system_content}]
+            for msg in (history or []):
+                if msg.type == "human":
+                    chat_messages.append({"role": "user", "content": msg.content})
+                elif msg.type == "ai" and msg.content:
+                    chat_messages.append({"role": "assistant", "content": msg.content})
+            chat_messages.append({"role": "user", "content": prompt})
+
+            model_cfg = _config["model"]
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=chat_messages,
+                temperature=model_cfg["temperature_contextual"],
+                max_tokens=model_cfg["max_tokens_contextual"],
+            )
+
+            answer = response.choices[0].message.content
+            logger.debug(f"[FAQ] LLM contextual response:\n{answer}")
+            return answer
 
         except Exception as e:
             logger.error(f"Error generating contextual response: {e}")
 
-            # Respuesta básica usando la FAQ más similar
             best_faq = similar_faqs[0] if similar_faqs else None
             if best_faq:
-                return f"""
-Basándome en tu consulta, creo que esto te puede ayudar:
-
-**{best_faq['question']}**
-
-{best_faq['answer']}
-
-¿Esto responde a tu pregunta o necesitas información adicional?
-"""
+                return (
+                    f"Basándome en tu consulta, creo que esto te puede ayudar:\n\n"
+                    f"**{best_faq['question']}**\n\n"
+                    f"{best_faq['answer']}\n\n"
+                    f"¿Esto responde a tu pregunta o necesitas información adicional?"
+                )
 
             return "Lo siento, no pude procesar tu consulta correctamente. ¿Podrías reformularla?"
 
-    async def _generate_no_results_response(self, user_query: str) -> str:
+    async def _generate_no_results_response(self, user_query: str, history: list = None) -> str:
         """Genera respuesta cuando no se encuentran FAQs relevantes"""
 
         try:
-            prompt = f"""
-El usuario preguntó: "{user_query}"
-
-Aunque no encuentro FAQs específicas que coincidan exactamente, soy el asistente inteligente de Ithaka y puedo ayudar.
-
-CONTEXTO ITHAKA:
-- Centro de emprendimiento de la Universidad Católica del Uruguay
-- Programas: Minor de emprendimiento, Programa Fellows, cursos electivos
-- Servicios: Incubadora de startups, mentorías, capacitaciones
-- Todo gratuito para comunidad UCU, abierto a emprendedores externos
-- Campus: Montevideo, Maldonado, Salto
-- Foco: Innovación, emprendimiento, impacto social
-
-GENERA UNA RESPUESTA INTELIGENTE QUE:
-1. **Interprete la intención**: Aunque la pregunta tenga errores o sea vaga, infiere qué necesita
-2. **Proporcione valor**: Da información útil sobre Ithaka basándose en el contexto
-3. **Sea proactiva**: Sugiere programas/servicios que podrían interesarle
-4. **Mantenga conversación**: Invita a hacer preguntas más específicas
-5. **Corrige sutilmente**: Si hay errores de tipeo, usa las palabras correctas en tu respuesta
-
-Respuesta útil e inteligente:
-"""
-
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Eres el asistente de Ithaka. Ayuda al usuario incluso cuando no tienes información específica."
-                    },
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.5,
-                max_tokens=200
+            prompt = _prompts.get_template("faq_no_results.j2").render(
+                user_query=user_query,
             )
 
-            return response.choices[0].message.content
+            system_content = _config["system_prompts"]["no_results"]
+            logger.debug("-" * 60)
+            logger.debug("[FAQ] No-results LLM call")
+            logger.debug(f"[FAQ] System prompt:\n{system_content}")
+            logger.debug(f"[FAQ] User prompt:\n{prompt}")
+
+            chat_messages = [{"role": "system", "content": system_content}]
+            for msg in (history or []):
+                if msg.type == "human":
+                    chat_messages.append({"role": "user", "content": msg.content})
+                elif msg.type == "ai" and msg.content:
+                    chat_messages.append({"role": "assistant", "content": msg.content})
+            chat_messages.append({"role": "user", "content": prompt})
+
+            model_cfg = _config["model"]
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=chat_messages,
+                temperature=model_cfg["temperature_no_results"],
+                max_tokens=model_cfg["max_tokens_no_results"],
+            )
+
+            answer = response.choices[0].message.content
+            logger.debug(f"[FAQ] LLM no-results response:\n{answer}")
+            return answer
 
         except Exception as e:
             logger.error(f"Error generating no results response: {e}")
-            return """
-No encontré información específica sobre tu consulta en nuestras FAQs.
-
-Te sugiero:
-• Contactar directamente al equipo de Ithaka
-• Revisar nuestro sitio web oficial
-• Seguirnos en redes sociales para estar al día
-
-¿Hay algo más sobre emprendimiento o nuestros programas en lo que pueda ayudarte?
-"""
+            return (
+                "No encontré información específica sobre tu consulta en nuestras FAQs.\n\n"
+                "Te sugiero:\n"
+                "• Contactar directamente al equipo de Ithaka\n"
+                "• Revisar nuestro sitio web oficial\n"
+                "• Seguirnos en redes sociales para estar al día\n\n"
+                "¿Hay algo más sobre emprendimiento o nuestros programas en lo que pueda ayudarte?"
+            )
 
 
 # Instancia global del agente
 faq_agent = FAQAgent()
 
 
-# Función para usar en el grafo LangGraph
-
-
 async def handle_faq_query(state: ConversationState) -> ConversationState:
     """Función wrapper para LangGraph"""
-    return await faq_agent.handle_faq_query(state)
+    return await faq_agent(state)

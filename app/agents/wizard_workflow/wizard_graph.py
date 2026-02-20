@@ -1,39 +1,59 @@
+import logging
+
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import AIMessage
 
 from app.agents.wizard_workflow.nodes import ask_question_node, store_answer_node
 from app.graph.state import WizardState
 
+logger = logging.getLogger(__name__)
+
 def should_continue_after_store(state: WizardState) -> str:
     """Decide si continuar con el wizard o terminar después de guardar respuesta"""
-    # Chequear si ya completamos todas las preguntas (el store_answer_node ya calculó esto)
-    if state.get("completed", False):
-        return "completion_message"
-    return "ask_question"
+    completed = state.get("completed", False)
+    decision = "completion_message" if completed else "ask_question"
+    logger.debug(f"[WIZARD_GRAPH] should_continue_after_store: completed={completed} -> {decision}")
+    return decision
 
 def should_ask_or_store(state: WizardState) -> str:
     """Decide si hacer pregunta o guardar respuesta basado en si hay respuesta del usuario"""
-    messages = state.get("messages", [])
-
-    # Si no hay mensajes o el último mensaje es del AI, hacer pregunta
-    if not messages or messages[-1].type == "ai":
+    # If the wizard hasn't asked a question yet in this turn, never treat an
+    # existing human message as an answer — just ask the first question.
+    if not state.get("awaiting_answer", False):
+        logger.debug("[WIZARD_GRAPH] should_ask_or_store: awaiting_answer=False -> ask_question")
         return "ask_question"
 
-    # Si el último mensaje es del usuario, guardar respuesta
-    if messages[-1].type == "human":
+    messages = state.get("messages", [])
+
+    if not messages:
+        logger.debug("[WIZARD_GRAPH] should_ask_or_store: no messages -> ask_question")
+        return "ask_question"
+
+    last_msg_type = messages[-1].type
+    last_msg_content = messages[-1].content[:80] if messages[-1].content else "(empty)"
+
+    if last_msg_type == "ai":
+        logger.debug(f"[WIZARD_GRAPH] should_ask_or_store: last msg is AI -> ask_question "
+                      f"(content={last_msg_content!r})")
+        return "ask_question"
+
+    if last_msg_type == "human":
+        logger.debug(f"[WIZARD_GRAPH] should_ask_or_store: last msg is human -> store_answer "
+                      f"(content={last_msg_content!r})")
         return "store_answer"
 
-    # Default: hacer pregunta
+    logger.debug(f"[WIZARD_GRAPH] should_ask_or_store: unknown msg type={last_msg_type!r} -> ask_question")
     return "ask_question"
 
 def completion_message_node(state: WizardState):
     """Nodo que genera el mensaje de finalización del wizard"""
+    logger.debug("[WIZARD_GRAPH] completion_message_node: generating completion message")
     completion_msg = "¡Muchas gracias por completar el formulario de postulación de Ithaka! 🎉\n\nHemos registrado todas tus respuestas. Nuestro equipo revisará tu postulación y te contactaremos a la brevedad.\n\n¡Esperamos poder acompañarte en tu emprendimiento!"
 
     return {
         **state,
         "messages": [AIMessage(content=completion_msg)],
-        "wizard_status": "COMPLETED"  # Cambiar el status del wizard, no el campo completed
+        "wizard_status": "COMPLETED"
     }
 
 builder = StateGraph(WizardState)
