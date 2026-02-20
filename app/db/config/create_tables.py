@@ -4,6 +4,9 @@ import os
 from sqlalchemy import text
 
 from app.db.config.database import Base, engine
+from app.db import models  # noqa: F401 - needed so SQLAlchemy registers model metadata
+
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 

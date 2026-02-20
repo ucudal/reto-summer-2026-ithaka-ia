@@ -203,7 +203,7 @@ print(result)
 
 ### Error: "No module named 'langchain'"
 ```bash
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 ```
 
 ### Error: "Extension vector does not exist"
@@ -248,7 +248,7 @@ Verificar `DATABASE_URL` en `.env`
 Asegúrate de tener las dependencias necesarias:
 
 ```
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 ```
 
 ## 2. Configurar variables de entorno
