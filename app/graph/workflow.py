@@ -15,6 +15,7 @@ from .agent_descriptions import ROUTABLE_AGENTS
 from .state import ConversationState
 from ..agents.faq import handle_faq_query
 from ..agents.supervisor import route_message, decide_next_agent_wrapper
+from ..agents.validator import handle_validation
 from ..agents.wizard_node import handle_wizard_flow
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ class IthakaWorkflow:
         # Agregar nodos (agentes)
         workflow.add_node("supervisor", route_message)
         workflow.add_node("wizard", handle_wizard_flow)
+        workflow.add_node("validator", handle_validation)
         workflow.add_node("faq", handle_faq_query)
 
         # Definir punto de entrada
@@ -53,6 +55,7 @@ class IthakaWorkflow:
 
         # Los otros agentes terminan el flujo
         workflow.add_edge("wizard", END)
+        workflow.add_edge("validator", END)
         workflow.add_edge("faq", END)
 
         # Compilar el grafo
@@ -79,18 +82,8 @@ class IthakaWorkflow:
                 "completed": wizard_state.get("wizard_state") == "COMPLETED"
             }
         else:
-            # Crear WizardState por defecto para nuevos wizards
-            wizard_state_obj = {
-                "wizard_session_id": str(uuid.uuid4()),
-                "current_question": 1,  # Cambiar de 0 a 1 - las preguntas empiezan en 1
-                "answers": [],
-                "wizard_responses": {},
-                "wizard_status": "ACTIVE",
-                "awaiting_answer": False,
-                "messages": [],
-                "completed": False,
-                "valid": False  # Inicializar valid
-            }
+            # No iniciar wizard hasta que el supervisor lo decida.
+            wizard_state_obj = None
 
         return {
             "messages": [HumanMessage(content=user_message)],
@@ -122,7 +115,7 @@ class IthakaWorkflow:
             logger.debug(f"[WORKFLOW] Thread ID: {thread_id}")
             logger.debug(f"[WORKFLOW] Incoming wizard_state: {wizard_state}")
             logger.debug(f"[WORKFLOW] Initial state keys: {list(initial_state.keys())}")
-            ws = initial_state.get("wizard_state", {})
+            ws = initial_state.get("wizard_state") or {}
             logger.debug(f"[WORKFLOW] Initial wizard_state: status={ws.get('wizard_status')}, "
                          f"question={ws.get('current_question')}, "
                          f"awaiting={ws.get('awaiting_answer')}, "

@@ -13,9 +13,10 @@ To add a new agent:
 """
 
 from ..agents.faq import FAQAgent
+from ..agents.validator import ValidatorAgent
 from ..agents.wizard_node import WizardAgent
 
-_AGENT_CLASSES = [FAQAgent, WizardAgent]
+_AGENT_CLASSES = [FAQAgent, ValidatorAgent, WizardAgent]
 
 ROUTABLE_AGENTS: list[tuple[str, str]] = [
     (cls.name, cls.description) for cls in _AGENT_CLASSES
