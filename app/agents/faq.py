@@ -115,8 +115,11 @@ class FAQAgent(AgentNode):
                     )
                     await conversation_service.save_message(session, conv_id, "user", user_message)
                     await conversation_service.save_message(session, conv_id, "assistant", response)
+                    await session.commit()
                 except Exception as db_err:
+                    await session.rollback()
                     logger.error(f"[FAQ] Error al persistir mensajes en DB: {db_err}", exc_info=True)
+                    conv_id = state.get("conversation_id")
 
                 # Devolver delta de messages para que add_messages lo agregue
                 return {
