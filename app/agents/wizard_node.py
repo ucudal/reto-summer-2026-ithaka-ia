@@ -15,6 +15,8 @@ import yaml
 from .base import AgentNode
 from ..graph.state import ConversationState
 from .wizard_workflow.wizard_graph import wizard_graph
+from ..db.config.database import SessionLocal
+from ..services import conversation_service
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +79,49 @@ class WizardAgent(AgentNode):
         logger.debug(f"[WIZARD_NODE]   wizard_status={result.get('wizard_status')}")
         logger.debug(f"[WIZARD_NODE]   response (first 200 chars): {response_content[:200]!r}")
 
+        # --- Persistencia en DB ---
+        conv_id = state.get("conversation_id")
+        wizard_responses = result.get("wizard_responses", {})
+        email = wizard_responses.get("email")
+
+        try:
+            async with SessionLocal() as db_session:
+                try:
+                    conv_id = await conversation_service.get_or_create_conversation(
+                        db_session, conv_id, email=email
+                    )
+
+                    # Guardar mensaje del usuario
+                    user_msgs = [m for m in state.get("messages", []) if m.type == "human"]
+                    if user_msgs:
+                        await conversation_service.save_message(
+                            db_session, conv_id, "user", user_msgs[-1].content
+                        )
+
+                    # Guardar respuesta del asistente
+                    if response_content:
+                        await conversation_service.save_message(
+                            db_session, conv_id, "assistant", response_content
+                        )
+
+                    # Actualizar WizardSession con los datos del paso actual
+                    ws = await conversation_service.get_or_create_wizard_session(db_session, conv_id)
+                    wizard_state_str = "COMPLETED" if result.get("completed") else "ACTIVE"
+                    await conversation_service.update_wizard_session(
+                        db_session,
+                        ws,
+                        result.get("current_question", 1),
+                        wizard_responses,
+                        wizard_state_str,
+                    )
+
+                    await db_session.commit()
+                except Exception:
+                    await db_session.rollback()
+                    raise
+        except Exception as e:
+            logger.error(f"[WIZARD_NODE] Error al persistir en DB: {e}", exc_info=True)
+
         return {
             **state,
             "wizard_state": result,
@@ -84,6 +129,7 @@ class WizardAgent(AgentNode):
             "agent_context": {
                 "response": response_content
             },
+            "conversation_id": conv_id,
         }
 
 
