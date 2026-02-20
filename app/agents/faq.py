@@ -55,7 +55,15 @@ class FAQAgent(AgentNode):
     async def __call__(self, state: ConversationState) -> ConversationState:
         """Procesa una consulta FAQ del usuario"""
 
-        user_message = [m.content for m in state["messages"] if m.type == "human"][-1]
+        messages = state.get("messages", [])
+        user_message = [m.content for m in messages if m.type == "human"][-1]
+        # Build conversation history excluding the current user message (last one)
+        history = messages[:-1] if messages else []
+
+        logger.debug("=" * 60)
+        logger.debug("[FAQ] __call__ invoked")
+        logger.debug(f"[FAQ] User message: {user_message!r}")
+        logger.debug(f"[FAQ] similarity_threshold={self.similarity_threshold}, max_results={self.max_results}")
 
         try:
             # Obtener sesión de base de datos
@@ -68,10 +76,15 @@ class FAQAgent(AgentNode):
                     similarity_threshold=self.similarity_threshold
                 )
 
+                logger.debug(f"[FAQ] Found {len(similar_faqs)} similar FAQs")
+                for i, faq in enumerate(similar_faqs):
+                    logger.debug(f"[FAQ]   faq[{i}] similarity={faq.get('similarity', '?'):.3f} "
+                                 f"q={faq.get('question', '')[:80]!r}")
+
                 if similar_faqs:
                     # Generar respuesta contextualizada con las FAQs encontradas
                     response = await self._generate_contextual_response(
-                        user_message, similar_faqs
+                        user_message, similar_faqs, history
                     )
 
                     state["faq_results"] = to_serializable(similar_faqs)
@@ -80,7 +93,7 @@ class FAQAgent(AgentNode):
 
                 else:
                     # No se encontraron FAQs relevantes
-                    response = await self._generate_no_results_response(user_message)
+                    response = await self._generate_no_results_response(user_message, history)
 
                     state["faq_results"] = []
                     state["next_action"] = "send_response"
@@ -134,7 +147,8 @@ Mientras tanto, puedes:
     async def _generate_contextual_response(
             self,
             user_query: str,
-            similar_faqs: list[dict[str, Any]]
+            similar_faqs: list[dict[str, Any]],
+            history: list = None,
     ) -> str:
         """Genera una respuesta contextualizada basada en FAQs similares"""
 
@@ -152,18 +166,32 @@ Mientras tanto, puedes:
                 faq_context=faq_context,
             )
 
+            system_content = _config["system_prompts"]["contextual"]
+            logger.debug("-" * 60)
+            logger.debug("[FAQ] Contextual LLM call")
+            logger.debug(f"[FAQ] FAQ context passed to prompt:\n{faq_context}")
+            logger.debug(f"[FAQ] System prompt:\n{system_content}")
+            logger.debug(f"[FAQ] User prompt:\n{prompt}")
+
+            chat_messages = [{"role": "system", "content": system_content}]
+            for msg in (history or []):
+                if msg.type == "human":
+                    chat_messages.append({"role": "user", "content": msg.content})
+                elif msg.type == "ai" and msg.content:
+                    chat_messages.append({"role": "assistant", "content": msg.content})
+            chat_messages.append({"role": "user", "content": prompt})
+
             model_cfg = _config["model"]
             response = await self.client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": _config["system_prompts"]["contextual"]},
-                    {"role": "user", "content": prompt},
-                ],
+                messages=chat_messages,
                 temperature=model_cfg["temperature_contextual"],
                 max_tokens=model_cfg["max_tokens_contextual"],
             )
 
-            return response.choices[0].message.content
+            answer = response.choices[0].message.content
+            logger.debug(f"[FAQ] LLM contextual response:\n{answer}")
+            return answer
 
         except Exception as e:
             logger.error(f"Error generating contextual response: {e}")
@@ -179,7 +207,7 @@ Mientras tanto, puedes:
 
             return "Lo siento, no pude procesar tu consulta correctamente. ¿Podrías reformularla?"
 
-    async def _generate_no_results_response(self, user_query: str) -> str:
+    async def _generate_no_results_response(self, user_query: str, history: list = None) -> str:
         """Genera respuesta cuando no se encuentran FAQs relevantes"""
 
         try:
@@ -187,18 +215,31 @@ Mientras tanto, puedes:
                 user_query=user_query,
             )
 
+            system_content = _config["system_prompts"]["no_results"]
+            logger.debug("-" * 60)
+            logger.debug("[FAQ] No-results LLM call")
+            logger.debug(f"[FAQ] System prompt:\n{system_content}")
+            logger.debug(f"[FAQ] User prompt:\n{prompt}")
+
+            chat_messages = [{"role": "system", "content": system_content}]
+            for msg in (history or []):
+                if msg.type == "human":
+                    chat_messages.append({"role": "user", "content": msg.content})
+                elif msg.type == "ai" and msg.content:
+                    chat_messages.append({"role": "assistant", "content": msg.content})
+            chat_messages.append({"role": "user", "content": prompt})
+
             model_cfg = _config["model"]
             response = await self.client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": _config["system_prompts"]["no_results"]},
-                    {"role": "user", "content": prompt},
-                ],
+                messages=chat_messages,
                 temperature=model_cfg["temperature_no_results"],
                 max_tokens=model_cfg["max_tokens_no_results"],
             )
 
-            return response.choices[0].message.content
+            answer = response.choices[0].message.content
+            logger.debug(f"[FAQ] LLM no-results response:\n{answer}")
+            return answer
 
         except Exception as e:
             logger.error(f"Error generating no results response: {e}")

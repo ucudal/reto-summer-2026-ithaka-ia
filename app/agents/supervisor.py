@@ -50,6 +50,13 @@ class SupervisorAgent:
         chat_history = [m.content for m in messages if m.type == "human"]
         user_message = chat_history[-1].strip()
 
+        logger.debug("=" * 60)
+        logger.debug("[SUPERVISOR] route_message called")
+        logger.debug(f"[SUPERVISOR] User message: {user_message!r}")
+        logger.debug(f"[SUPERVISOR] Total messages in state: {len(messages)}")
+        for i, m in enumerate(messages):
+            logger.debug(f"[SUPERVISOR]   msg[{i}] type={m.type} content={m.content[:100]!r}...")
+
         # 1. Estado: si hay wizard activo, mantenerlo sin llamar al LLM
         wizard_state_obj = state.get("wizard_state")
         if wizard_state_obj:
@@ -57,8 +64,11 @@ class SupervisorAgent:
             awaiting_answer = wizard_state_obj.get("awaiting_answer", False)
             wizard_session_id = wizard_state_obj.get("wizard_session_id")
 
+            logger.debug(f"[SUPERVISOR] Wizard state check: status={wizard_status}, "
+                         f"awaiting={awaiting_answer}, session_id={wizard_session_id}")
+
             if wizard_session_id and (wizard_status == "ACTIVE" or awaiting_answer):
-                logger.info("Manteniendo wizard activo - session detectada")
+                logger.info("[SUPERVISOR] Bypassing LLM - routing to wizard (active session)")
                 return self._route_to(state, "wizard")
 
         # 2. Routing basado 100% en LLM usando contexto conversacional completo
@@ -67,8 +77,7 @@ class SupervisorAgent:
         state["supervisor_decision"] = intention
         state["current_agent"] = intention
 
-        logger.info(
-            f"Supervisor decision: {intention} for message: {user_message[:50]}")
+        logger.info(f"[SUPERVISOR] Final decision: {intention} for message: {user_message[:80]!r}")
 
         return state
 
@@ -108,6 +117,7 @@ class SupervisorAgent:
                     for msg in messages[-6:]
                 )
 
+            system_prompt = _prompts.get_template("supervisor_system.j2").render()
             prompt = _prompts.get_template("supervisor_route.j2").render(
                 agents_block=agents_block,
                 valid_names=valid_names,
@@ -115,11 +125,19 @@ class SupervisorAgent:
                 context=context,
             )
 
+            logger.debug("-" * 60)
+            logger.debug("[SUPERVISOR] LLM routing call")
+            logger.debug(f"[SUPERVISOR] Agents block:\n{agents_block}")
+            logger.debug(f"[SUPERVISOR] Valid names: {valid_names}")
+            logger.debug(f"[SUPERVISOR] Conversation context:\n{context or '(empty)'}")
+            logger.debug(f"[SUPERVISOR] System prompt:\n{system_prompt}")
+            logger.debug(f"[SUPERVISOR] User prompt:\n{prompt}")
+
             model_cfg = _config["model"]
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": _prompts.get_template("supervisor_system.j2").render()},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=model_cfg["temperature"],
@@ -127,23 +145,25 @@ class SupervisorAgent:
             )
 
             raw = response.choices[0].message.content.strip()
+            logger.debug(f"[SUPERVISOR] LLM raw response: {raw!r}")
+
             parsed = json.loads(raw)
             intention = parsed.get("agent", "").strip().lower()
             reasoning = parsed.get("reasoning", "")
 
-            logger.debug(f"Supervisor reasoning: {reasoning}")
+            logger.debug(f"[SUPERVISOR] Parsed agent: {intention!r}, reasoning: {reasoning!r}")
 
             if intention in ROUTABLE_AGENT_NAMES:
                 return intention
 
             logger.warning(
-                f"LLM returned invalid agent name: '{intention}'. "
-                f"Falling back to '{DEFAULT_AGENT}'."
+                f"[SUPERVISOR] LLM returned invalid agent name: {intention!r}. "
+                f"Falling back to {DEFAULT_AGENT!r}."
             )
             return DEFAULT_AGENT
 
         except Exception as e:
-            logger.error(f"Error in description-based routing: {e}")
+            logger.error(f"[SUPERVISOR] Error in description-based routing: {e}", exc_info=True)
             return DEFAULT_AGENT
 
     @staticmethod

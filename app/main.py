@@ -1,5 +1,16 @@
+import logging
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+log_level = os.getenv("LOG_LEVEL", "DEBUG").upper()
+logging.basicConfig(
+    level=getattr(logging, log_level, logging.DEBUG),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    force=True,
+)
 
 from app.api.v1.conversations import router as conversations_router
 from app.api.v1.copilotkit_endpoint import router as copilotkit_router
