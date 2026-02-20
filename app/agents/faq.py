@@ -17,6 +17,7 @@ from .base import AgentNode
 from ..db.config.database import get_async_session
 from ..graph.state import ConversationState
 from ..services.embedding_service import embedding_service
+from ..services import conversation_service
 
 logger = logging.getLogger(__name__)
 
@@ -106,13 +107,25 @@ class FAQAgent(AgentNode):
                     "query_processed": True
                 }
 
+                # --- Persistencia en DB ---
+                conv_id = state.get("conversation_id")
+                try:
+                    conv_id = await conversation_service.get_or_create_conversation(
+                        session, conv_id
+                    )
+                    await conversation_service.save_message(session, conv_id, "user", user_message)
+                    await conversation_service.save_message(session, conv_id, "assistant", response)
+                except Exception as db_err:
+                    logger.error(f"[FAQ] Error al persistir mensajes en DB: {db_err}", exc_info=True)
+
                 # Devolver delta de messages para que add_messages lo agregue
                 return {
                     "agent_context": state["agent_context"],
                     "faq_results": state.get("faq_results", []),
                     "next_action": state["next_action"],
                     "should_continue": state["should_continue"],
-                    "messages": [AIMessage(content=response)]
+                    "messages": [AIMessage(content=response)],
+                    "conversation_id": conv_id,
                 }
 
         except Exception as e:

@@ -24,11 +24,18 @@ def ask_question_node(state: WizardState):
 def store_answer_node(state: WizardState):
     user_message = [m.content for m in state["messages"] if m.type == "human"][-1]
 
-    new_index = state["current_question"] + 1
+    current_q = state["current_question"]
+    new_index = current_q + 1
     is_completed = new_index > max(WIZARD_QUESTIONS.keys())
 
+    q_config = WIZARD_QUESTIONS.get(current_q, {})
+    field_name = q_config.get("field_name", str(current_q))
+
+    wizard_responses = dict(state.get("wizard_responses", {}))
+    wizard_responses[field_name] = user_message
+
     logger.debug("-" * 60)
-    logger.debug(f"[WIZARD/store_answer] Storing answer for question #{state['current_question']}")
+    logger.debug(f"[WIZARD/store_answer] Storing answer for question #{current_q} (field={field_name!r})")
     logger.debug(f"[WIZARD/store_answer] User answer: {user_message[:200]!r}")
     logger.debug(f"[WIZARD/store_answer] Next question index: {new_index}")
     logger.debug(f"[WIZARD/store_answer] Is completed: {is_completed}")
@@ -37,6 +44,7 @@ def store_answer_node(state: WizardState):
     return {
         **state,
         "answers": state.get("answers", []) + [user_message],
+        "wizard_responses": wizard_responses,
         "current_question": new_index,
         "completed": is_completed,
         "awaiting_answer": False,
