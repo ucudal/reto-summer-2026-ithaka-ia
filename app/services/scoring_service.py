@@ -58,7 +58,8 @@ async def procesar_postulaciones(use_ai: bool = False, ai_provider: str = "opena
 
                 logger.info("✅ Postulación %s procesada: %s", postulacion_id, scores["score_total"])
 
-            except Exception as e:
+            except Exception:
+                await session.rollback()
                 logger.exception("❌ Error procesando postulación %s", postulacion_id)
                 continue
 
@@ -125,6 +126,7 @@ Optional[Dict[str, Any]]:
             return scores
 
         except Exception:
+            await session.rollback()
             logger.exception("❌ Error procesando postulación %s", postulacion_id)
             return None
 

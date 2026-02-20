@@ -144,7 +144,7 @@ curl -X POST "http://localhost:8000/api/v1/chat" \
 {
   "response": "Aquí va la respuesta generada por el agente.",
   "agent_used": "faq",
-  "wizard_session_id": "b5e6f1d2-...",
+  "wizard_session_id": null,
   "wizard_state": "INACTIVE",
   "current_question": 1,
   "wizard_responses": {},
@@ -154,9 +154,9 @@ curl -X POST "http://localhost:8000/api/v1/chat" \
 
 **Validator (Validación de datos):**
 ```json
-{"content": "Podés validar este email: persona@example.com?"}
-{"content": "Mi teléfono es +598 9876 5432, confirmá si está correcto."}
-{"content": "La cédula 48903345 es válida?"}
+{"message": "Podés validar este email: persona@example.com?"}
+{"message": "Mi teléfono es +598 9876 5432, confirmá si está correcto."}
+{"message": "La cédula 48903345 es válida?"}
 ```
 
 ### Tecnologías Utilizadas
