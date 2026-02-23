@@ -16,7 +16,7 @@ from .base import AgentNode
 from ..graph.state import ConversationState
 from .wizard_workflow.wizard_graph import wizard_graph
 from ..db.config.database import SessionLocal
-from ..services import conversation_service
+from ..services import conversation_service, postulation_service
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +78,16 @@ class WizardAgent(AgentNode):
         logger.debug(f"[WIZARD_NODE]   completed={result.get('completed')}")
         logger.debug(f"[WIZARD_NODE]   wizard_status={result.get('wizard_status')}")
         logger.debug(f"[WIZARD_NODE]   response (first 200 chars): {response_content[:200]!r}")
+
+        # --- Envío a API externa ---
+        if result.get("completed"):
+            try:
+                submission = await postulation_service.submit_postulation(
+                    result.get("wizard_responses", {})
+                )
+                logger.info(f"[WIZARD_NODE] Postulation submitted to external API: {submission}")
+            except Exception as e:
+                logger.error(f"[WIZARD_NODE] Error submitting postulation to external API: {e}", exc_info=True)
 
         # --- Persistencia en DB ---
         conv_id = state.get("conversation_id")
