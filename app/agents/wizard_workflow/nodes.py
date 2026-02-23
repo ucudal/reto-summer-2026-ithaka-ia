@@ -113,10 +113,18 @@ def ask_question_node(state: WizardState):
     current_q = state["current_question"]
     i = _get_current_or_next_applicable_question(current_q, wizard_responses)
     if i is None:
+        completion_message = (
+            "Muchas gracias por completar el formulario de postulacion de Ithaka!\n\n"
+            "Hemos registrado todas tus respuestas. Nuestro equipo revisara tu postulacion "
+            "y te contactara a la brevedad.\n\n"
+            "Esperamos poder acompanarte en tu emprendimiento!"
+        )
         return {
             **state,
+            "messages": [AIMessage(content=completion_message)],
             "completed": True,
             "awaiting_answer": False,
+            "wizard_status": "COMPLETED",
         }
 
     question = WIZARD_QUESTIONS[i]["text"]
