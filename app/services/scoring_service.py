@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Dict, Any, Optional
 
 from sqlalchemy import text
@@ -7,6 +8,7 @@ from app.db.config.database import SessionLocal
 from app.services.ai_score_engine import evaluar_postulacion_ai
 from app.services.score_engine import evaluar_postulacion
 
+logger = logging.getLogger(__name__)
 
 async def procesar_postulaciones(use_ai: bool = False, ai_provider: str = "openai"):
     """
@@ -54,14 +56,15 @@ async def procesar_postulaciones(use_ai: bool = False, ai_provider: str = "opena
                     }
                 )
 
-                print(f"✅ Postulación {postulacion_id} procesada: {scores['score_total']}")
+                logger.info("✅ Postulación %s procesada: %s", postulacion_id, scores["score_total"])
 
-            except Exception as e:
-                print(f"❌ Error procesando postulación {postulacion_id}: {e}")
+            except Exception:
+                await session.rollback()
+                logger.exception("❌ Error procesando postulación %s", postulacion_id)
                 continue
 
         await session.commit()
-        print("🎉 Procesamiento completado!")
+        logger.info("🎉 Procesamiento completado!")
 
 
 async def procesar_postulacion_especifica(postulacion_id: int, use_ai: bool = False, ai_provider: str = "openai") -> \
@@ -86,13 +89,13 @@ Optional[Dict[str, Any]]:
 
         postulacion = result.fetchone()
         if not postulacion:
-            print(f"❌ Postulación {postulacion_id} no encontrada")
+            logger.info("❌ Postulación %s no encontrada", postulacion_id)
             return None
 
         payload_json = postulacion[1]
         texto = extraer_texto_del_payload(payload_json)
         if not texto or not texto.strip():
-            print(f"❌ Postulación {postulacion_id} tiene texto vacío")
+            logger.info("❌ Postulación %s tiene texto vacío", postulacion_id)
             return None
 
         try:
@@ -119,11 +122,12 @@ Optional[Dict[str, Any]]:
             )
 
             await session.commit()
-            print(f"✅ Postulación {postulacion_id} procesada: {scores['score_total']}")
+            logger.info("✅ Postulación %s procesada: %s", postulacion_id, scores["score_total"])
             return scores
 
-        except Exception as e:
-            print(f"❌ Error procesando postulación {postulacion_id}: {e}")
+        except Exception:
+            await session.rollback()
+            logger.exception("❌ Error procesando postulación %s", postulacion_id)
             return None
 
 

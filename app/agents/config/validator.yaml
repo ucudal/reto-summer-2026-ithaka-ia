@@ -1,0 +1,5 @@
+name: validator
+description: >-
+  Valida datos personales dentro de la conversación (correo electrónico,
+  teléfono y cédula) detectando errores y guiando al usuario para corregirlos
+  antes de guardar su postulación.

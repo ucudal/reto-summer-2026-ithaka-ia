@@ -12,6 +12,7 @@ logging.basicConfig(
     force=True,
 )
 
+from app.api.v1.chat import router as chat_router
 from app.api.v1.conversations import router as conversations_router
 from app.api.v1.copilotkit_endpoint import router as copilotkit_router
 from app.api.v1.documents import router as documents_router
@@ -32,6 +33,7 @@ app.add_middleware(
 )
 
 app.include_router(conversations_router, prefix=v1, tags=["Conversations"])
+app.include_router(chat_router, prefix=v1, tags=["Chat"])
 app.include_router(documents_router, prefix=v1, tags=["Documents"])
 app.include_router(scoring_router, prefix=v1, tags=["Scoring"])
 app.include_router(copilotkit_router, prefix=v1, tags=["CopilotKit"])

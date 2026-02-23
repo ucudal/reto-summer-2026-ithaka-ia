@@ -116,7 +116,7 @@ Podes revisar la doc en http://127.0.0.1:8000/docs
 
 1. **🎯 Supervisor** - Router inteligente que analiza intenciones del usuario
 2. **❓ FAQ** - Responde consultas usando búsqueda vectorial (PGVector)
-3. **✅ Validator** - Valida datos usando funciones existentes (próximamente)
+3. **✅ Validator** - Detecta correos, teléfonos y cédulas dentro de la conversación, valida su formato y guía al usuario para corregirlos antes de guardarlos.
 4. **📝 Wizard** - Formulario conversacional (próximamente)
 
 ### Uso del Sistema
@@ -139,6 +139,25 @@ curl -X POST "http://localhost:8000/api/v1/chat" \
      -H "Content-Type: application/json" \
      -d '{"message": "¿Qué es el programa Fellows?"}'
 ```
+**Respuesta típica:**
+```json
+{
+  "response": "Aquí va la respuesta generada por el agente.",
+  "agent_used": "faq",
+  "wizard_session_id": null,
+  "wizard_state": "INACTIVE",
+  "current_question": 1,
+  "wizard_responses": {},
+  "awaiting_answer": false
+}
+```
+
+**Validator (Validación de datos):**
+```json
+{"message": "Podés validar este email: persona@example.com?"}
+{"message": "Mi teléfono es +598 9876 5432, confirmá si está correcto."}
+{"message": "La cédula 48903345 es válida?"}
+```
 
 ### Tecnologías Utilizadas
 
@@ -147,6 +166,12 @@ curl -X POST "http://localhost:8000/api/v1/chat" \
 - **OpenAI** - LLM y embeddings
 - **PGVector** - Búsqueda semántica de FAQs
 - **PostgreSQL** - Persistencia
+
+### Validación en Tiempo Real
+
+- El Supervisor detecta cuando una intención incluye revisar o enviar datos personales (correo, teléfono, cédula) y enrutará el mensaje al agente **validator** automáticamente.
+- El Validator normaliza el dato, ejecuta las reglas de `utils/validators.py` y responde en la misma conversación indicando si es válido.
+- Ante errores, devuelve el motivo exacto y pide el dato corregido antes de permitir que continúe el flujo (ideal para evitar guardar información inconsistente).
 
 ## 🗄️ Base de Datos
 
@@ -220,11 +245,6 @@ export OPENAI_API_KEY="sk-your-key-here"
 Verificar `DATABASE_URL` en `.env`
 
 ## 📈 Próximas Integraciones
-
-### Validator Agent
-- Validación de emails, teléfonos, cédulas
-- Integración con `utils/validators.py`
-- Validaciones en tiempo real
 
 ### Wizard Agent
 - Formulario conversacional de 20 preguntas
