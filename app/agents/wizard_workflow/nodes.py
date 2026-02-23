@@ -5,6 +5,7 @@ from langchain_core.messages import AIMessage
 from app.config.questions import WIZARD_QUESTIONS
 from app.graph.state import WizardState
 from app.utils.validators import ValidationError, validate_ci, validate_email, validate_phone
+from app.agents.wizard_workflow.messages import WIZARD_COMPLETION_MESSAGE
 
 logger = logging.getLogger(__name__)
 
@@ -72,14 +73,14 @@ def _validate_wizard_answer(question_cfg: dict, answer: str):
         options = question_cfg.get("options", ["NO", "SI"])
         canonical = _normalize_option_answer(cleaned, options)
         if _normalize_answer(canonical) not in {_normalize_answer(o) for o in options}:
-            raise ValidationError(f"Respuesta inválida. Opciones válidas: {', '.join(options)}.")
+            raise ValidationError(f"Respuesta invalida. Opciones validas: {', '.join(options)}.")
         return canonical
     if validation in {"campus", "ucu_relation", "faculty", "discovery_method", "project_stage", "support_needed"}:
         options = question_cfg.get("options", [])
         if options:
             canonical = _normalize_option_answer(cleaned, options)
             if _normalize_answer(canonical) not in {_normalize_answer(o) for o in options}:
-                raise ValidationError(f"Respuesta inválida. Opciones válidas: {', '.join(options)}.")
+                raise ValidationError(f"Respuesta invalida. Opciones validas: {', '.join(options)}.")
             return canonical
         return cleaned
     if validation == "text_min_length":
@@ -113,15 +114,9 @@ def ask_question_node(state: WizardState):
     current_q = state["current_question"]
     i = _get_current_or_next_applicable_question(current_q, wizard_responses)
     if i is None:
-        completion_message = (
-            "Muchas gracias por completar el formulario de postulación de Ithaka!\n\n"
-            "Hemos registrado todas tus respuestas. Nuestro equipo revisará tu postulación "
-            "y te contactará a la brevedad.\n\n"
-            "Esperamos poder acompañarte en tu emprendimiento!"
-        )
         return {
             **state,
-            "messages": [AIMessage(content=completion_message)],
+            "messages": [AIMessage(content=WIZARD_COMPLETION_MESSAGE)],
             "completed": True,
             "awaiting_answer": False,
             "wizard_status": "COMPLETED",
@@ -154,7 +149,7 @@ def store_answer_node(state: WizardState):
         logger.debug(f"[WIZARD/store_answer] Validation failed for question #{current_q}: {exc}")
         return {
             **state,
-            "messages": [AIMessage(content=f"El dato no es válido: {exc}\n\nIntenta nuevamente.")],
+            "messages": [AIMessage(content=f"El dato no es valido: {exc}\n\nIntenta nuevamente.")],
             "awaiting_answer": True,
             "completed": False,
         }

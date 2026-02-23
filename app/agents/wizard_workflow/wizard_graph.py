@@ -4,6 +4,7 @@ from langchain_core.messages import AIMessage
 from langgraph.graph import END, StateGraph
 
 from app.agents.wizard_workflow.nodes import ask_question_node, store_answer_node
+from app.agents.wizard_workflow.messages import WIZARD_COMPLETION_MESSAGE
 from app.graph.state import WizardState
 
 logger = logging.getLogger(__name__)
@@ -58,16 +59,10 @@ def should_ask_or_store(state: WizardState) -> str:
 def completion_message_node(state: WizardState):
     """Nodo que genera el mensaje de finalización del wizard."""
     logger.debug("[WIZARD_GRAPH] completion_message_node: generating completion message")
-    completion_msg = (
-        "Muchas gracias por completar el formulario de postulación de Ithaka!\n\n"
-        "Hemos registrado todas tus respuestas. Nuestro equipo revisará tu postulación "
-        "y te contactará a la brevedad.\n\n"
-        "Esperamos poder acompañarte en tu emprendimiento!"
-    )
 
     return {
         **state,
-        "messages": [AIMessage(content=completion_msg)],
+        "messages": [AIMessage(content=WIZARD_COMPLETION_MESSAGE)],
         "wizard_status": "COMPLETED",
     }
 
