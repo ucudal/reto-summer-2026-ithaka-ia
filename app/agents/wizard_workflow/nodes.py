@@ -72,14 +72,14 @@ def _validate_wizard_answer(question_cfg: dict, answer: str):
         options = question_cfg.get("options", ["NO", "SI"])
         canonical = _normalize_option_answer(cleaned, options)
         if _normalize_answer(canonical) not in {_normalize_answer(o) for o in options}:
-            raise ValidationError(f"Respuesta invalida. Opciones validas: {', '.join(options)}.")
+            raise ValidationError(f"Respuesta inválida. Opciones válidas: {', '.join(options)}.")
         return canonical
     if validation in {"campus", "ucu_relation", "faculty", "discovery_method", "project_stage", "support_needed"}:
         options = question_cfg.get("options", [])
         if options:
             canonical = _normalize_option_answer(cleaned, options)
             if _normalize_answer(canonical) not in {_normalize_answer(o) for o in options}:
-                raise ValidationError(f"Respuesta invalida. Opciones validas: {', '.join(options)}.")
+                raise ValidationError(f"Respuesta inválida. Opciones válidas: {', '.join(options)}.")
             return canonical
         return cleaned
     if validation == "text_min_length":
@@ -93,7 +93,7 @@ def _validate_wizard_answer(question_cfg: dict, answer: str):
         return cleaned
     if validation == "location":
         if len(cleaned) < 3:
-            raise ValidationError("Ingresa pais y localidad.")
+            raise ValidationError("Ingresa país y localidad.")
         return cleaned
     if validation in {"optional_text", "rubrica"}:
         return cleaned
@@ -114,10 +114,10 @@ def ask_question_node(state: WizardState):
     i = _get_current_or_next_applicable_question(current_q, wizard_responses)
     if i is None:
         completion_message = (
-            "Muchas gracias por completar el formulario de postulacion de Ithaka!\n\n"
-            "Hemos registrado todas tus respuestas. Nuestro equipo revisara tu postulacion "
-            "y te contactara a la brevedad.\n\n"
-            "Esperamos poder acompanarte en tu emprendimiento!"
+            "Muchas gracias por completar el formulario de postulación de Ithaka!\n\n"
+            "Hemos registrado todas tus respuestas. Nuestro equipo revisará tu postulación "
+            "y te contactará a la brevedad.\n\n"
+            "Esperamos poder acompañarte en tu emprendimiento!"
         )
         return {
             **state,
@@ -154,7 +154,7 @@ def store_answer_node(state: WizardState):
         logger.debug(f"[WIZARD/store_answer] Validation failed for question #{current_q}: {exc}")
         return {
             **state,
-            "messages": [AIMessage(content=f"El dato no es valido: {exc}\n\nIntenta nuevamente.")],
+            "messages": [AIMessage(content=f"El dato no es válido: {exc}\n\nIntenta nuevamente.")],
             "awaiting_answer": True,
             "completed": False,
         }

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 def should_continue_after_store(state: WizardState) -> str:
-    """Decide si continuar con el wizard o terminar despues de guardar respuesta."""
+    """Decide si continuar con el wizard o terminar después de guardar respuesta."""
     if state.get("awaiting_answer", False):
         logger.debug("[WIZARD_GRAPH] should_continue_after_store: awaiting_answer=True -> finish")
         return "finish"
@@ -56,13 +56,13 @@ def should_ask_or_store(state: WizardState) -> str:
 
 
 def completion_message_node(state: WizardState):
-    """Nodo que genera el mensaje de finalizacion del wizard."""
+    """Nodo que genera el mensaje de finalización del wizard."""
     logger.debug("[WIZARD_GRAPH] completion_message_node: generating completion message")
     completion_msg = (
-        "Muchas gracias por completar el formulario de postulacion de Ithaka!\n\n"
-        "Hemos registrado todas tus respuestas. Nuestro equipo revisara tu postulacion "
-        "y te contactara a la brevedad.\n\n"
-        "Esperamos poder acompanarte en tu emprendimiento!"
+        "Muchas gracias por completar el formulario de postulación de Ithaka!\n\n"
+        "Hemos registrado todas tus respuestas. Nuestro equipo revisará tu postulación "
+        "y te contactará a la brevedad.\n\n"
+        "Esperamos poder acompañarte en tu emprendimiento!"
     )
 
     return {
@@ -94,10 +94,10 @@ builder.add_conditional_edges(
     },
 )
 
-# Despues de hacer pregunta, terminar (esperar respuesta del usuario)
+# Después de hacer pregunta, terminar (esperar respuesta del usuario)
 builder.add_edge("ask_question", "finish")
 
-# Despues de guardar respuesta, decidir si continuar o mostrar mensaje final
+# Después de guardar respuesta, decidir si continuar o mostrar mensaje final
 builder.add_conditional_edges(
     "store_answer",
     should_continue_after_store,
@@ -108,7 +108,7 @@ builder.add_conditional_edges(
     },
 )
 
-# Despues del mensaje de finalizacion, terminar
+# Después del mensaje de finalización, terminar
 builder.add_edge("completion_message", "finish")
 
 # finish termina el flujo
