@@ -105,6 +105,9 @@ WIZARD_QUESTIONS = {
     13: {
         "text": "**Composición del equipo**\n\nSi tienes equipo de trabajo, ¿cómo está compuesto el equipo?\n\nIncluye:\n• Datos de los otros integrantes (Nombres y Apellidos, Celular y Correo electrónico)\n• ¿Qué actividades/roles desempeña cada uno?\n• Experiencias previas, ¿Es el primer emprendimiento?",
         "type": "evaluative",
+        "conditional": True,
+        "condition_field": "has_idea",
+        "condition_values": ["SI"],
         "required": True,
         "validation": "rubrica",
         "rubrica_key": "pregunta_13",
@@ -113,6 +116,9 @@ WIZARD_QUESTIONS = {
     14: {
         "text": "**Problema que resuelve**\n\n¿Qué problema resuelve el emprendimiento? O ¿qué oportunidad/necesidad has detectado?\n\nDescribe claramente el problema o necesidad que has identificado:",
         "type": "evaluative",
+        "conditional": True,
+        "condition_field": "has_idea",
+        "condition_values": ["SI"],
         "required": True,
         "validation": "rubrica",
         "rubrica_key": "pregunta_14",
@@ -121,6 +127,9 @@ WIZARD_QUESTIONS = {
     15: {
         "text": "**La solución**\n\n¿Cuál es la solución? ¿Quiénes son los clientes?\n\nDescribe tu solución y define claramente tu mercado objetivo:",
         "type": "evaluative",
+        "conditional": True,
+        "condition_field": "has_idea",
+        "condition_values": ["SI"],
         "required": True,
         "validation": "rubrica",
         "rubrica_key": "pregunta_15",
@@ -129,6 +138,9 @@ WIZARD_QUESTIONS = {
     16: {
         "text": "**Innovación y valor diferencial**\n\n¿Por qué es innovador o tiene valor diferencial?\n\nExplícanos también:\n• ¿Cómo se resuelve este problema hoy?\n• ¿Por qué te van a comprar a ti en vez de a otros?",
         "type": "evaluative",
+        "conditional": True,
+        "condition_field": "has_idea",
+        "condition_values": ["SI"],
         "required": True,
         "validation": "rubrica",
         "rubrica_key": "pregunta_16",
@@ -137,6 +149,9 @@ WIZARD_QUESTIONS = {
     17: {
         "text": "**Modelo de negocio**\n\n¿Cómo hace dinero este proyecto?\n\nDescribe tu modelo de negocio y fuentes de ingresos:",
         "type": "evaluative",
+        "conditional": True,
+        "condition_field": "has_idea",
+        "condition_values": ["SI"],
         "required": True,
         "validation": "rubrica",
         "rubrica_key": "pregunta_17",
@@ -145,6 +160,9 @@ WIZARD_QUESTIONS = {
     18: {
         "text": "**Etapa del proyecto**\n\n¿En qué etapa está el proyecto?\n\nOpciones:\n• Idea inicial\n• Prototipo/MVP\n• Producto desarrollado\n• Ventas/Tracción inicial\n• Escalando",
         "type": "informative",
+        "conditional": True,
+        "condition_field": "has_idea",
+        "condition_values": ["SI"],
         "required": True,
         "validation": "project_stage",
         "options": ["Idea inicial", "Prototipo/MVP", "Producto desarrollado", "Ventas/Tracción inicial", "Escalando"],
@@ -154,6 +172,9 @@ WIZARD_QUESTIONS = {
     19: {
         "text": "**Apoyo necesario**\n\n¿Cuál/es de estos apoyos necesitas de Ithaka?\n\nOpciones:\n• Tutoría para validar la idea\n• Soporte para armar el plan de negocios\n• Ayuda para obtener financiamiento para el proyecto\n• Capacitación\n• Ayuda para un tema específico\n• Otro",
         "type": "informative",
+        "conditional": True,
+        "condition_field": "has_idea",
+        "condition_values": ["SI"],
         "required": True,
         "validation": "support_needed",
         "options": ["Tutoría para validar la idea", "Soporte para armar el plan de negocios", "Ayuda para obtener financiamiento para el proyecto", "Capacitación", "Ayuda para un tema específico", "Otro"],
@@ -163,9 +184,15 @@ WIZARD_QUESTIONS = {
     20: {
         "text": "**Información adicional**\n\n¿Algo más que quieras contarnos?\n\n*(Opcional - Cualquier información adicional que consideres relevante)*",
         "type": "optional",
+        "conditional": True,
+        "condition_field": "has_idea",
+        "condition_values": ["SI"],
         "required": False,
         "validation": "optional_text",
         "rubrica_key": "pregunta_20",
         "field_name": "additional_info"
     }
 }
+
+
+
