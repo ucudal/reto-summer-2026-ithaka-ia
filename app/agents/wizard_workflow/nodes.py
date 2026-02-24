@@ -12,10 +12,15 @@ logger = logging.getLogger(__name__)
 MAX_ANSWER_LENGTH = 2000
 GUARDRAIL_BLOCK_PATTERNS = (
     "ignore previous instructions",
+    "ignore all previous instructions",
     "ignora las instrucciones anteriores",
-    "system prompt",
+    "ignora todas las instrucciones anteriores",
+    "follow system instructions",
+    "sigue las instrucciones del sistema",
+    "reveal system prompt",
+    "show system prompt",
+    "developer message",
     "prompt injection",
-    "act as",
     "jailbreak",
     "<system>",
 )
@@ -137,6 +142,7 @@ def input_guardrails_node(state: WizardState):
             "current_question": first_question,
             "awaiting_answer": False,
             "completed": False,
+            "wizard_status": "ACTIVE",
             "valid": False,
         }
 
@@ -147,6 +153,7 @@ def input_guardrails_node(state: WizardState):
             "messages": [AIMessage(content="No pude leer tu respuesta. Intenta enviarla nuevamente.")],
             "awaiting_answer": True,
             "completed": False,
+            "wizard_status": "ACTIVE",
             "valid": False,
         }
 
@@ -161,6 +168,7 @@ def input_guardrails_node(state: WizardState):
             ],
             "awaiting_answer": True,
             "completed": False,
+            "wizard_status": "ACTIVE",
             "valid": False,
         }
 
@@ -176,6 +184,7 @@ def input_guardrails_node(state: WizardState):
             ],
             "awaiting_answer": True,
             "completed": False,
+            "wizard_status": "ACTIVE",
             "valid": False,
         }
 
@@ -219,6 +228,7 @@ def store_answer_node(state: WizardState):
             "messages": [AIMessage(content="No pude leer tu respuesta. Intenta nuevamente.")],
             "awaiting_answer": True,
             "completed": False,
+            "wizard_status": "ACTIVE",
             "valid": False,
         }
 

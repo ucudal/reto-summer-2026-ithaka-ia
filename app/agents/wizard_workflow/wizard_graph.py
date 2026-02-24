@@ -57,7 +57,7 @@ def should_ask_or_store(state: WizardState) -> str:
 
 
 def should_store_after_guardrails(state: WizardState) -> str:
-    is_valid = bool(state.get("valid", False))
+    is_valid = state.get("valid") is True
     decision = "store_answer" if is_valid else "finish"
     logger.debug(f"[WIZARD_GRAPH] should_store_after_guardrails: valid={is_valid} -> {decision}")
     return decision
