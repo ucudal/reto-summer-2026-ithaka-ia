@@ -11,13 +11,14 @@ asyncpg==0.30.0
 pgvector==0.4.1
 
 # AI and LLM
-openai==1.99.1
-langchain-openai
+openai==1.104.2
+langchain-openai==0.3.33
 langgraph==0.2.76
 langgraph-checkpoint==2.1.1
 langgraph-sdk==0.1.74
 guardrails-ai>=0.5.10
 rich<14
+langsmith==0.3.45
 
 # Data validation and serialization
 pydantic==2.11.7
@@ -36,7 +37,7 @@ websockets==15.0.1
 twilio==8.13.0
 
 # Numerical computing (used in embeddings)
-numpy==2.3.2
+numpy<2.0.0,>=1.26.2
 
 # JWT authentication
 PyJWT>=2.8.0

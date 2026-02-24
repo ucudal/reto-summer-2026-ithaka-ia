@@ -3,6 +3,7 @@ Workflow principal de LangGraph para orquestar todos los agentes del sistema Ith
 """
 
 import logging
+import os
 from typing import Any
 import uuid
 
@@ -10,6 +11,9 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
 from langchain_core.messages import HumanMessage
+from langsmith import traceable
+from langchain_core.tracers.context import tracing_v2_enabled
+from langchain_core.tracers.langchain import LangChainTracer
 
 from .agent_descriptions import ROUTABLE_AGENTS
 from .state import ConversationState
@@ -25,6 +29,13 @@ class IthakaWorkflow:
     """Workflow principal que maneja toda la lógica de conversación"""
 
     def __init__(self):
+        # Initialize LangSmith tracing
+        self.tracing_enabled = os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true"
+        self.project_name = os.getenv("LANGCHAIN_PROJECT", "ithaka-project")
+        
+        if self.tracing_enabled:
+            logger.info(f"LangSmith tracing enabled for project: {self.project_name}")
+        
         self.graph = self._build_graph()
 
     def _build_graph(self) -> CompiledStateGraph:
@@ -59,6 +70,7 @@ class IthakaWorkflow:
         workflow.add_edge("faq", END)
 
         # Compilar el grafo
+        # Usar configuración básica para el checkpointer
         return workflow.compile(checkpointer=InMemorySaver())
 
     def _create_initial_state(
@@ -105,6 +117,7 @@ class IthakaWorkflow:
 
         return base_state
 
+    @traceable(run_type="chain")
     async def process_message(
         self,
         user_message: str,
@@ -142,8 +155,24 @@ class IthakaWorkflow:
             )
 
             logger.info(f"Processing message: {user_message[:50]}...")
-            config = {"configurable": {"thread_id": thread_id}}
-            result = await self.graph.ainvoke(initial_state, config=config)
+            
+            # Use tracing context if enabled
+            # Generar un ID único para esta conversación
+            conversation_id = str(uuid.uuid4()) if thread_id == "default" else thread_id
+            
+            # Configurar parámetros para el checkpointer
+            config_params = {
+                "configurable": {
+                    "thread_id": conversation_id,
+                    "checkpoint_ns": "ithaka"
+                }
+            }
+            
+            if self.tracing_enabled:
+                with tracing_v2_enabled(project_name=self.project_name):
+                    result = await self.graph.ainvoke(initial_state, config=config_params)
+            else:
+                result = await self.graph.ainvoke(initial_state, config=config_params)
 
             logger.debug(f"[WORKFLOW] Graph result keys: {list(result.keys())}")
             logger.debug(f"[WORKFLOW] Result current_agent: {result.get('current_agent')}")

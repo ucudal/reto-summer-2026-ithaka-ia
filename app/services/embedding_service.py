@@ -6,6 +6,8 @@ import numpy as np
 from openai import AsyncOpenAI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from langsmith import traceable
+from langchain_core.tracers.context import tracing_v2_enabled
 
 from ..db.models import FAQEmbedding
 
@@ -16,11 +18,21 @@ class EmbeddingService:
     """Servicio para generar y gestionar embeddings usando OpenAI"""
 
     def __init__(self):
+        # Initialize OpenAI client
         self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model = os.getenv("OPENAI_EMBEDDING_MODEL",
                                "text-embedding-3-small")
         self.dimension = int(os.getenv("EMBEDDING_DIMENSION", "1536"))
+        
+        # Enable LangSmith tracing
+        self.tracing_enabled = os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true"
+        self.project_name = os.getenv("LANGCHAIN_PROJECT", "ithaka-project")
+        
+        logger.info(f"Embedding Service initialized with model: {self.model}")
+        if self.tracing_enabled:
+            logger.info(f"LangSmith tracing enabled for project: {self.project_name}")
 
+    @traceable(run_type="embedding")
     async def generate_embedding(self, text: str) -> List[float]:
         """Genera embedding para un texto dado"""
         try:
@@ -33,6 +45,20 @@ class EmbeddingService:
             logger.error(f"Error generating embedding: {e}")
             raise
 
+    @traceable(run_type="embedding")
+    async def generate_batch_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """Genera embeddings para múltiples textos en batch"""
+        try:
+            response = await self.client.embeddings.create(
+                model=self.model,
+                input=texts
+            )
+            return [data.embedding for data in response.data]
+        except Exception as e:
+            logger.error(f"Error generating batch embeddings: {e}")
+            raise
+
+    @traceable(run_type="retriever")
     async def search_similar_faqs(
             self,
             query: str,
@@ -74,6 +100,7 @@ class EmbeddingService:
             logger.error(f"Error searching similar FAQs: {e}")
             return []
 
+    @traceable(run_type="tool")
     async def add_faq_embedding(
             self,
             question: str,

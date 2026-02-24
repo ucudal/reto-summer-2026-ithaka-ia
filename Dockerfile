@@ -24,8 +24,8 @@ RUN apt-get update \
 
 # Install Python dependencies with uv
 COPY requirements.txt .
-RUN pip install --no-cache-dir "uv==${UV_VERSION}" \
-    && uv pip install --system -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
 # Copy project
 COPY . .
