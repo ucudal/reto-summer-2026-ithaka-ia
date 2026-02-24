@@ -82,10 +82,15 @@ class FAQAgent(AgentNode):
                     logger.debug(f"[FAQ]   faq[{i}] similarity={faq.get('similarity', '?'):.3f} "
                                  f"q={faq.get('question', '')[:80]!r}")
 
+                doc_context = state.get("document_context")
+                doc_filename = state.get("document_filename")
+
                 if similar_faqs:
                     # Generar respuesta contextualizada con las FAQs encontradas
                     response = await self._generate_contextual_response(
-                        user_message, similar_faqs, history
+                        user_message, similar_faqs, history,
+                        document_context=doc_context,
+                        document_filename=doc_filename,
                     )
 
                     state["faq_results"] = to_serializable(similar_faqs)
@@ -94,7 +99,11 @@ class FAQAgent(AgentNode):
 
                 else:
                     # No se encontraron FAQs relevantes
-                    response = await self._generate_no_results_response(user_message, history)
+                    response = await self._generate_no_results_response(
+                        user_message, history,
+                        document_context=doc_context,
+                        document_filename=doc_filename,
+                    )
 
                     state["faq_results"] = []
                     state["next_action"] = "send_response"
@@ -165,6 +174,8 @@ Mientras tanto, puedes:
             user_query: str,
             similar_faqs: list[dict[str, Any]],
             history: list = None,
+            document_context: str | None = None,
+            document_filename: str | None = None,
     ) -> str:
         """Genera una respuesta contextualizada basada en FAQs similares"""
 
@@ -180,6 +191,8 @@ Mientras tanto, puedes:
             prompt = _prompts.get_template("faq_contextual.j2").render(
                 user_query=user_query,
                 faq_context=faq_context,
+                document_context=document_context,
+                document_filename=document_filename or "documento adjunto",
             )
 
             system_content = _config["system_prompts"]["contextual"]
@@ -223,12 +236,20 @@ Mientras tanto, puedes:
 
             return "Lo siento, no pude procesar tu consulta correctamente. ¿Podrías reformularla?"
 
-    async def _generate_no_results_response(self, user_query: str, history: list = None) -> str:
+    async def _generate_no_results_response(
+            self,
+            user_query: str,
+            history: list = None,
+            document_context: str | None = None,
+            document_filename: str | None = None,
+    ) -> str:
         """Genera respuesta cuando no se encuentran FAQs relevantes"""
 
         try:
             prompt = _prompts.get_template("faq_no_results.j2").render(
                 user_query=user_query,
+                document_context=document_context,
+                document_filename=document_filename or "documento adjunto",
             )
 
             system_content = _config["system_prompts"]["no_results"]

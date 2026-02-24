@@ -1,5 +1,10 @@
 El usuario preguntó: "{{ user_query }}"
+{% if document_context %}
+DOCUMENTO ADJUNTO POR EL USUARIO ({{ document_filename }}):
+{{ document_context }}
 
+Usa el contenido de este documento como contexto adicional para personalizar tu respuesta.
+{% endif %}
 Aunque no encuentro FAQs específicas que coincidan exactamente, soy el asistente inteligente de Ithaka y puedo ayudar.
 
 CONTEXTO ITHAKA:

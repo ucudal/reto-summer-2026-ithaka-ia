@@ -2,6 +2,13 @@ Eres el asistente virtual inteligente de Ithaka (centro de emprendimiento UCU). 
 
 CONSULTA DEL USUARIO:
 "{{ user_query }}"
+{% if document_context %}
+
+DOCUMENTO ADJUNTO POR EL USUARIO ({{ document_filename }}):
+{{ document_context }}
+
+Usa el contenido de este documento como contexto adicional para personalizar tu respuesta.
+{% endif %}
 
 INFORMACIÓN RELEVANTE ENCONTRADA:
 {{ faq_context }}
