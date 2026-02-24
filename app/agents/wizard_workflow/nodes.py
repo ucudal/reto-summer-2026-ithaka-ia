@@ -1,4 +1,5 @@
 import logging
+import hashlib
 
 from langchain_core.messages import AIMessage
 
@@ -175,7 +176,16 @@ def input_guardrails_node(state: WizardState):
 
     lowered = cleaned.lower()
     if any(pattern in lowered for pattern in GUARDRAIL_BLOCK_PATTERNS):
-        logger.warning("[WIZARD/guardrails] Possible prompt-injection-like answer blocked")
+        msg_preview = cleaned[:64]
+        msg_hash = hashlib.sha256(cleaned.encode("utf-8")).hexdigest()[:12]
+        logger.warning(
+            "[WIZARD/guardrails] Possible prompt-injection-like answer blocked "
+            "session_id=%s current_question=%s msg_preview=%r msg_hash=%s",
+            state.get("wizard_session_id"),
+            current_q,
+            msg_preview,
+            msg_hash,
+        )
         return {
             **state,
             "messages": [

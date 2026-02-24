@@ -58,7 +58,12 @@ def should_ask_or_store(state: WizardState) -> str:
 
 def should_store_after_guardrails(state: WizardState) -> str:
     is_valid = state.get("valid") is True
-    decision = "store_answer" if is_valid else "finish"
+    if is_valid:
+        decision = "store_answer"
+    elif not state.get("awaiting_answer", False):
+        decision = "ask_question"
+    else:
+        decision = "finish"
     logger.debug(f"[WIZARD_GRAPH] should_store_after_guardrails: valid={is_valid} -> {decision}")
     return decision
 
@@ -103,6 +108,7 @@ builder.add_conditional_edges(
     should_store_after_guardrails,
     {
         "store_answer": "store_answer",
+        "ask_question": "ask_question",
         "finish": "finish",
     },
 )
