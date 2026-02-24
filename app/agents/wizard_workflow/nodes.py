@@ -126,10 +126,11 @@ def _get_current_or_next_applicable_question(current_q: int, wizard_responses: d
 
 
 def _extract_last_human_message(state: WizardState):
-    human_messages = [m.content for m in state.get("messages", []) if m.type == "human"]
-    if not human_messages:
-        return None
-    return human_messages[-1]
+    messages = state.get("messages", [])
+    for message in reversed(messages):
+        if getattr(message, "type", None) == "human":
+            return message.content
+    return None
 
 
 def input_guardrails_node(state: WizardState):
