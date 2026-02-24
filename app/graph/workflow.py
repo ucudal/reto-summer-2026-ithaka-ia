@@ -73,7 +73,7 @@ class IthakaWorkflow:
         if wizard_state:
             wizard_state_obj = {
                 "wizard_session_id": wizard_state.get("wizard_session_id"),
-                "current_question": wizard_state.get("current_question", 0),
+                "current_question": wizard_state.get("current_question", 1),
                 "answers": [],
                 "wizard_responses": wizard_state.get("wizard_responses", {}),
                 "wizard_status": wizard_state.get("wizard_state", "INACTIVE"),

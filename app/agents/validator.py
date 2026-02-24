@@ -17,7 +17,7 @@ from langchain_core.messages import AIMessage
 
 from .base import AgentNode
 from ..graph.state import ConversationState
-from utils.validators import (
+from ..utils.validators import (
     ValidationError,
     validate_ci,
     validate_email,
