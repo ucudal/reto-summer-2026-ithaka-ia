@@ -9,6 +9,17 @@ from app.agents.wizard_workflow.messages import WIZARD_COMPLETION_MESSAGE
 
 logger = logging.getLogger(__name__)
 
+MAX_ANSWER_LENGTH = 2000
+GUARDRAIL_BLOCK_PATTERNS = (
+    "ignore previous instructions",
+    "ignora las instrucciones anteriores",
+    "system prompt",
+    "prompt injection",
+    "act as",
+    "jailbreak",
+    "<system>",
+)
+
 
 def _normalize_answer(value):
     if isinstance(value, str):
@@ -109,6 +120,71 @@ def _get_current_or_next_applicable_question(current_q: int, wizard_responses: d
     return _get_next_question_index(current_q - 1, wizard_responses)
 
 
+def _extract_last_human_message(state: WizardState):
+    human_messages = [m.content for m in state.get("messages", []) if m.type == "human"]
+    if not human_messages:
+        return None
+    return human_messages[-1]
+
+
+def input_guardrails_node(state: WizardState):
+    current_q = state.get("current_question")
+    if current_q not in WIZARD_QUESTIONS:
+        first_question = min(WIZARD_QUESTIONS.keys())
+        return {
+            **state,
+            "messages": [AIMessage(content="Perdimos el estado del formulario. Reiniciamos desde el inicio.")],
+            "current_question": first_question,
+            "awaiting_answer": False,
+            "completed": False,
+            "valid": False,
+        }
+
+    user_message = _extract_last_human_message(state)
+    if user_message is None:
+        return {
+            **state,
+            "messages": [AIMessage(content="No pude leer tu respuesta. Intenta enviarla nuevamente.")],
+            "awaiting_answer": True,
+            "completed": False,
+            "valid": False,
+        }
+
+    cleaned = user_message.strip()
+    if len(cleaned) > MAX_ANSWER_LENGTH:
+        return {
+            **state,
+            "messages": [
+                AIMessage(
+                    content=f"La respuesta es demasiado larga (maximo {MAX_ANSWER_LENGTH} caracteres). Resumela e intenta nuevamente."
+                )
+            ],
+            "awaiting_answer": True,
+            "completed": False,
+            "valid": False,
+        }
+
+    lowered = cleaned.lower()
+    if any(pattern in lowered for pattern in GUARDRAIL_BLOCK_PATTERNS):
+        logger.warning("[WIZARD/guardrails] Possible prompt-injection-like answer blocked")
+        return {
+            **state,
+            "messages": [
+                AIMessage(
+                    content="Tu mensaje parece una instruccion para alterar el asistente. Responde solo con el dato solicitado."
+                )
+            ],
+            "awaiting_answer": True,
+            "completed": False,
+            "valid": False,
+        }
+
+    return {
+        **state,
+        "valid": True,
+    }
+
+
 def ask_question_node(state: WizardState):
     wizard_responses = dict(state.get("wizard_responses", {}))
     current_q = state["current_question"]
@@ -136,7 +212,15 @@ def ask_question_node(state: WizardState):
 
 
 def store_answer_node(state: WizardState):
-    user_message = [m.content for m in state["messages"] if m.type == "human"][-1]
+    user_message = _extract_last_human_message(state)
+    if user_message is None:
+        return {
+            **state,
+            "messages": [AIMessage(content="No pude leer tu respuesta. Intenta nuevamente.")],
+            "awaiting_answer": True,
+            "completed": False,
+            "valid": False,
+        }
 
     current_q = state["current_question"]
     q_config = WIZARD_QUESTIONS.get(current_q, {})

@@ -3,8 +3,8 @@ import logging
 from langchain_core.messages import AIMessage
 from langgraph.graph import END, StateGraph
 
-from app.agents.wizard_workflow.nodes import ask_question_node, store_answer_node
 from app.agents.wizard_workflow.messages import WIZARD_COMPLETION_MESSAGE
+from app.agents.wizard_workflow.nodes import ask_question_node, input_guardrails_node, store_answer_node
 from app.graph.state import WizardState
 
 logger = logging.getLogger(__name__)
@@ -47,13 +47,20 @@ def should_ask_or_store(state: WizardState) -> str:
 
     if last_msg_type == "human":
         logger.debug(
-            f"[WIZARD_GRAPH] should_ask_or_store: last msg is human -> store_answer "
+            f"[WIZARD_GRAPH] should_ask_or_store: last msg is human -> input_guardrails "
             f"(content={last_msg_content!r})"
         )
-        return "store_answer"
+        return "input_guardrails"
 
     logger.debug(f"[WIZARD_GRAPH] should_ask_or_store: unknown msg type={last_msg_type!r} -> ask_question")
     return "ask_question"
+
+
+def should_store_after_guardrails(state: WizardState) -> str:
+    is_valid = bool(state.get("valid", False))
+    decision = "store_answer" if is_valid else "finish"
+    logger.debug(f"[WIZARD_GRAPH] should_store_after_guardrails: valid={is_valid} -> {decision}")
+    return decision
 
 
 def completion_message_node(state: WizardState):
@@ -71,6 +78,7 @@ builder = StateGraph(WizardState)
 
 # Agregar nodos
 builder.add_node("ask_question", ask_question_node)
+builder.add_node("input_guardrails", input_guardrails_node)
 builder.add_node("store_answer", store_answer_node)
 builder.add_node("completion_message", completion_message_node)
 builder.add_node("finish", lambda state: {**state, "completed": state.get("completed", False)})
@@ -85,7 +93,17 @@ builder.add_conditional_edges(
     should_ask_or_store,
     {
         "ask_question": "ask_question",
+        "input_guardrails": "input_guardrails",
+    },
+)
+
+# Despues de aplicar guardrails, decidir si guardar respuesta o terminar este turno
+builder.add_conditional_edges(
+    "input_guardrails",
+    should_store_after_guardrails,
+    {
         "store_answer": "store_answer",
+        "finish": "finish",
     },
 )
 
