@@ -160,6 +160,16 @@ def input_guardrails_node(state: WizardState):
         }
 
     cleaned = user_message.strip()
+    if not cleaned:
+        return {
+            **state,
+            "messages": [AIMessage(content="Tu respuesta esta vacia. Por favor escribe una respuesta e intenta nuevamente.")],
+            "awaiting_answer": True,
+            "completed": False,
+            "wizard_status": "ACTIVE",
+            "valid": False,
+        }
+
     if len(cleaned) > MAX_ANSWER_LENGTH:
         return {
             **state,
