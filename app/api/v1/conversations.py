@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.config.database import get_async_session
 from app.db.models import Conversation
+from app.security.auth import create_conversation_token
 
 router = APIRouter()
 
@@ -20,6 +21,11 @@ class ConversationResponse(BaseModel):
     id: int
     email: Optional[str]
     started_at: datetime
+
+
+class ConversationInitResponse(BaseModel):
+    token: str
+    conversationId: int
 
 
 @router.post("/conversations", response_model=ConversationResponse)
@@ -37,6 +43,25 @@ async def create_conversation(
             email=new_conv.email,
             started_at=new_conv.started_at
         )
+    except Exception:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail="Error creating conversation")
+
+
+@router.post("/conversations/init", response_model=ConversationInitResponse)
+async def init_conversation(
+        payload: ConversationCreate = ConversationCreate(),
+        session: AsyncSession = Depends(get_async_session),
+) -> ConversationInitResponse:
+    """Create a new conversation and return a signed JWT for the WebSocket."""
+    try:
+        new_conv = Conversation(email=payload.email)
+        session.add(new_conv)
+        await session.commit()
+        await session.refresh(new_conv)
+
+        token = create_conversation_token(new_conv.id)
+        return ConversationInitResponse(token=token, conversationId=new_conv.id)
     except Exception:
         await session.rollback()
         raise HTTPException(status_code=500, detail="Error creating conversation")

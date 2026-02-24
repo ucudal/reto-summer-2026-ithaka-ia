@@ -36,8 +36,8 @@ twilio==8.13.0
 # Numerical computing (used in embeddings)
 numpy==2.3.2
 
-# CopilotKit integration
-copilotkit==0.1.39
+# JWT authentication
+PyJWT>=2.8.0
 
 # Type hints
 typing-extensions==4.14.1
