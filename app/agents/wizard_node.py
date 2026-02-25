@@ -17,6 +17,10 @@ from ..graph.state import ConversationState
 from .wizard_workflow.wizard_graph import wizard_graph
 from ..db.config.database import SessionLocal
 from ..services import conversation_service, postulation_service
+from ..services.backoffice_service import (
+    BackofficeIntegrationDisabled,
+    send_postulation_to_backoffice,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +135,42 @@ class WizardAgent(AgentNode):
                     raise
         except Exception as e:
             logger.error(f"[WIZARD_NODE] Error al persistir en DB: {e}", exc_info=True)
+
+        # --- Enviar al Backoffice API cuando el wizard termina ---
+        logger.info(
+            "[WIZARD_NODE] Evaluando envío al Backoffice: completed=%s, has_wizard_responses=%s, email=%s",
+            bool(result.get("completed")),
+            bool(wizard_responses),
+            email,
+        )
+
+        if result.get("completed") and wizard_responses:
+            logger.info(
+                "[WIZARD_NODE] Iniciando envío al Backoffice para email=%s con %d campos en wizard_responses",
+                email,
+                len(wizard_responses),
+            )
+            try:
+                id_emp, id_caso = await send_postulation_to_backoffice(wizard_responses)
+                logger.info(
+                    "[WIZARD_NODE] Postulación enviada al backoffice: id_emprendedor=%s, id_caso=%s",
+                    id_emp,
+                    id_caso,
+                )
+            except BackofficeIntegrationDisabled:
+                logger.debug("[WIZARD_NODE] Integración backoffice desactivada, omitiendo envío.")
+            except Exception as e:
+                logger.error(
+                    "[WIZARD_NODE] Error al enviar postulación al backoffice: %s",
+                    e,
+                    exc_info=True,
+                )
+        else:
+            logger.debug(
+                "[WIZARD_NODE] No se envía al Backoffice: completed=%s, has_wizard_responses=%s",
+                bool(result.get("completed")),
+                bool(wizard_responses),
+            )
 
         return {
             **state,
