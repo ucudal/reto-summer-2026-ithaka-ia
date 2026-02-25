@@ -1,5 +1,6 @@
-import logging
 import hashlib
+import logging
+import os
 
 from langchain_core.messages import AIMessage
 
@@ -7,6 +8,13 @@ from app.config.questions import WIZARD_QUESTIONS
 from app.graph.state import WizardState
 from app.utils.validators import ValidationError, validate_ci, validate_email, validate_phone
 from app.agents.wizard_workflow.messages import WIZARD_COMPLETION_MESSAGE
+
+try:
+    from guardrails import Guard
+    from guardrails.hub import DetectJailbreak
+except ImportError:  # pragma: no cover - optional dependency during local dev
+    Guard = None
+    DetectJailbreak = None
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +33,91 @@ GUARDRAIL_BLOCK_PATTERNS = (
     "jailbreak",
     "<system>",
 )
+
+_DEFAULT_JAILBREAK_THRESHOLD = 0.9
+
+
+def _env_flag(value: str | None, *, default: bool = True) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() not in {"", "0", "false", "no", "off"}
+
+
+_DETECT_JAILBREAK_ENABLED = _env_flag(os.getenv("WIZARD_DETECT_JAILBREAK_ENABLED"), default=True)
+
+
+def _load_detect_jailbreak_guard():
+    if not _DETECT_JAILBREAK_ENABLED:
+        logger.info("[WIZARD/guardrails] DetectJailbreak disabled via env flag.")
+        return None
+    if Guard is None or DetectJailbreak is None:
+        logger.warning(
+            "[WIZARD/guardrails] guardrails-ai is not installed. "
+            "Install guardrails-ai>=0.5.10 and the DetectJailbreak hub package."
+        )
+        return None
+
+    raw_threshold = os.getenv("WIZARD_DETECT_JAILBREAK_THRESHOLD")
+    try:
+        threshold = float(raw_threshold) if raw_threshold is not None else _DEFAULT_JAILBREAK_THRESHOLD
+    except ValueError:
+        threshold = _DEFAULT_JAILBREAK_THRESHOLD
+        logger.warning(
+            "[WIZARD/guardrails] Invalid threshold %r. Falling back to %.2f.",
+            raw_threshold,
+            _DEFAULT_JAILBREAK_THRESHOLD,
+        )
+
+    try:
+        return Guard().use(DetectJailbreak, threshold=threshold)
+    except Exception:
+        logger.exception(
+            "[WIZARD/guardrails] Could not initialize DetectJailbreak. "
+            "Run `guardrails hub install hub://guardrails/detect_jailbreak` and retry."
+        )
+        return None
+
+
+_DETECT_JAILBREAK_GUARD = _load_detect_jailbreak_guard()
+
+
+def _is_detected_as_jailbreak(message: str) -> bool:
+    guard = _DETECT_JAILBREAK_GUARD
+    if guard is None:
+        return False
+
+    try:
+        result = guard.validate(message)
+    except Exception:
+        logger.exception("[WIZARD/guardrails] DetectJailbreak validation failed. Allowing message as fallback.")
+        return False
+
+    return not bool(getattr(result, "validation_passed", True))
+
+
+def _blocked_guardrail_response(state: WizardState, current_q: int, cleaned: str, reason: str):
+    msg_preview = cleaned[:64]
+    msg_hash = hashlib.sha256(cleaned.encode("utf-8")).hexdigest()[:12]
+    logger.warning(
+        "[WIZARD/guardrails] %s session_id=%s current_question=%s msg_preview=%r msg_hash=%s",
+        reason,
+        state.get("wizard_session_id"),
+        current_q,
+        msg_preview,
+        msg_hash,
+    )
+    return {
+        **state,
+        "messages": [
+            AIMessage(
+                content="Tu mensaje parece una instruccion para alterar el asistente. Responde solo con el dato solicitado."
+            )
+        ],
+        "awaiting_answer": True,
+        "completed": False,
+        "wizard_status": "ACTIVE",
+        "valid": False,
+    }
 
 
 def _normalize_answer(value):
@@ -186,28 +279,17 @@ def input_guardrails_node(state: WizardState):
 
     lowered = cleaned.lower()
     if any(pattern in lowered for pattern in GUARDRAIL_BLOCK_PATTERNS):
-        msg_preview = cleaned[:64]
-        msg_hash = hashlib.sha256(cleaned.encode("utf-8")).hexdigest()[:12]
-        logger.warning(
-            "[WIZARD/guardrails] Possible prompt-injection-like answer blocked "
-            "session_id=%s current_question=%s msg_preview=%r msg_hash=%s",
-            state.get("wizard_session_id"),
-            current_q,
-            msg_preview,
-            msg_hash,
+        return _blocked_guardrail_response(
+            state, current_q, cleaned, "Possible prompt-injection-like answer blocked."
         )
-        return {
-            **state,
-            "messages": [
-                AIMessage(
-                    content="Tu mensaje parece una instruccion para alterar el asistente. Responde solo con el dato solicitado."
-                )
-            ],
-            "awaiting_answer": True,
-            "completed": False,
-            "wizard_status": "ACTIVE",
-            "valid": False,
-        }
+
+    if _is_detected_as_jailbreak(cleaned):
+        return _blocked_guardrail_response(
+            state,
+            current_q,
+            cleaned,
+            "DetectJailbreak flagged potential jailbreak attempt.",
+        )
 
     return {
         **state,
