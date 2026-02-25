@@ -42,6 +42,7 @@ class ChatService:
         result = await self.workflow.process_message(
             user_message=message,
             wizard_state=wizard_state,
+            conversation_id=conversation_id,
             thread_id=thread_id,
         )
 

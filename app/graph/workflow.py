@@ -62,14 +62,33 @@ class IthakaWorkflow:
         return workflow.compile(checkpointer=InMemorySaver())
 
     def _create_initial_state(
-            self,
-            user_message: str,
-            wizard_state: dict[str, Any] = None
+        self,
+        user_message: str,
+        wizard_state: dict[str, Any] | None = None,
+        conversation_id: int | None = None,
+        user_email: str | None = None,
     ) -> ConversationState:
-        """Crea el estado inicial para el workflow"""
+        """Crea el estado inicial para el workflow.
 
-        # Crear WizardState - siempre crear uno si no existe para wizard
-        wizard_state_obj = None
+        - Siempre incluye el último mensaje humano.
+        - Usa ``conversation_id`` para enlazar con la conversación en DB.
+        - Solo sobreescribe el ``wizard_state`` cuando el frontend envía uno
+          explícitamente; de lo contrario, se reutiliza el estado persistido
+          por el checkpointer de LangGraph.
+        """
+
+        base_state: ConversationState = {
+            "messages": [HumanMessage(content=user_message)],
+            "conversation_id": conversation_id,
+            "user_email": user_email,
+            "current_agent": "supervisor",
+            "agent_context": {},
+        }
+
+        # Cuando el frontend envía un snapshot del wizard, úsalo para
+        # reconstruir el estado (por ejemplo después de un restart del backend).
+        # Si no se envía nada, dejamos que el checkpointer reutilice el
+        # ``wizard_state`` previo sin tocarlo.
         if wizard_state:
             wizard_state_obj = {
                 "wizard_session_id": wizard_state.get("wizard_session_id"),
@@ -79,26 +98,19 @@ class IthakaWorkflow:
                 "wizard_status": wizard_state.get("wizard_state", "INACTIVE"),
                 "awaiting_answer": wizard_state.get("awaiting_answer", False),
                 "messages": [],
-                "completed": wizard_state.get("wizard_state") == "COMPLETED"
+                "completed": wizard_state.get("wizard_state") == "COMPLETED",
+                "valid": False,
             }
-        else:
-            # No iniciar wizard hasta que el supervisor lo decida.
-            wizard_state_obj = None
+            base_state["wizard_state"] = wizard_state_obj
 
-        return {
-            "messages": [HumanMessage(content=user_message)],
-            "conversation_id": None,
-            "user_email": None,
-            "current_agent": "supervisor",
-            "agent_context": {},
-            "wizard_state": wizard_state_obj
-        }
+        return base_state
 
     async def process_message(
-            self,
-            user_message: str,
-            wizard_state: dict[str, Any] = None,
-            thread_id: str = "default"
+        self,
+        user_message: str,
+        wizard_state: dict[str, Any] | None = None,
+        conversation_id: int | None = None,
+        thread_id: str | None = None,
     ) -> dict[str, Any]:
         """Procesa un mensaje del usuario a través del grafo de agentes"""
 
@@ -106,8 +118,13 @@ class IthakaWorkflow:
             # Crear estado inicial
             initial_state = self._create_initial_state(
                 user_message=user_message,
-                wizard_state=wizard_state
+                wizard_state=wizard_state,
+                conversation_id=conversation_id,
             )
+
+            # Determinar thread_id si no viene explícito
+            if thread_id is None:
+                thread_id = str(conversation_id) if conversation_id is not None else "default"
 
             logger.debug("=" * 80)
             logger.debug("[WORKFLOW] process_message called")
@@ -116,10 +133,13 @@ class IthakaWorkflow:
             logger.debug(f"[WORKFLOW] Incoming wizard_state: {wizard_state}")
             logger.debug(f"[WORKFLOW] Initial state keys: {list(initial_state.keys())}")
             ws = initial_state.get("wizard_state") or {}
-            logger.debug(f"[WORKFLOW] Initial wizard_state: status={ws.get('wizard_status')}, "
-                         f"question={ws.get('current_question')}, "
-                         f"awaiting={ws.get('awaiting_answer')}, "
-                         f"completed={ws.get('completed')}")
+            logger.debug(
+                "[WORKFLOW] Initial wizard_state: status=%s, question=%s, awaiting=%s, completed=%s",
+                ws.get("wizard_status"),
+                ws.get("current_question"),
+                ws.get("awaiting_answer"),
+                ws.get("completed"),
+            )
 
             logger.info(f"Processing message: {user_message[:50]}...")
             config = {"configurable": {"thread_id": thread_id}}
