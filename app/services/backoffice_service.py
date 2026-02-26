@@ -7,6 +7,7 @@ Usado cuando el wizard de postulacion termina (estado COMPLETED).
 
 import logging
 import os
+import json
 from typing import Any
 
 import aiohttp
@@ -18,7 +19,19 @@ BACKOFFICE_BASE_URL = os.getenv("BACKOFFICE_BASE_URL", "http://localhost:8000").
 BACKOFFICE_API_PREFIX = "/api/v1"
 BACKOFFICE_ADMIN_EMAIL = os.getenv("BACKOFFICE_ADMIN_EMAIL", "admin@ithaka.com")
 BACKOFFICE_ADMIN_PASSWORD = os.getenv("BACKOFFICE_ADMIN_PASSWORD", "admin123")
-BACKOFFICE_DEFAULT_ID_ESTADO = int(os.getenv("BACKOFFICE_DEFAULT_ID_ESTADO", "1"))
+def _read_default_id_estado() -> int:
+    raw = (os.getenv("BACKOFFICE_DEFAULT_ID_ESTADO") or "1").strip()
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning(
+            "[BACKOFFICE] BACKOFFICE_DEFAULT_ID_ESTADO invalido=%r, se usa 1 por defecto.",
+            raw,
+        )
+        return 1
+
+
+BACKOFFICE_DEFAULT_ID_ESTADO = _read_default_id_estado()
 
 
 def _parse_full_name(full_name: str) -> tuple[str, str]:
@@ -39,7 +52,7 @@ def _parse_full_name(full_name: str) -> tuple[str, str]:
 
 def _parse_location(location: str) -> tuple[str, str]:
     """Intenta extraer pais y ciudad de un string 'Pais, Ciudad' o similar."""
-    if not (location or location.strip()):
+    if not location or not location.strip():
         return "", ""
     s = location.strip()
     if "," in s:
@@ -85,14 +98,18 @@ def _build_caso_description(wizard_responses: dict[str, Any]) -> str:
 
 
 def _sanitize_chatbot_data(wizard_responses: dict[str, Any]) -> dict[str, Any]:
-    """Keep only JSON-serializable primitives for datos_chatbot."""
+    """Keep JSON-serializable values for datos_chatbot."""
     sanitized: dict[str, Any] = {}
     for key, value in (wizard_responses or {}).items():
         if value is None or value == "":
             continue
-        if isinstance(value, (str, int, float, bool)):
+        if isinstance(value, (str, int, float, bool, list, dict)):
             sanitized[key] = value
-        else:
+            continue
+        try:
+            json.dumps(value)
+            sanitized[key] = value
+        except (TypeError, ValueError):
             sanitized[key] = str(value)
     return sanitized
 
