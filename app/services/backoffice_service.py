@@ -1,4 +1,4 @@
-﻿"""
+"""
 Servicio para enviar postulaciones al Backoffice API de Ithaka.
 
 Flujo: login -> POST emprendedores -> POST casos.

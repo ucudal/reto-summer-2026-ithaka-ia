@@ -1,4 +1,4 @@
-﻿"""
+"""
 WizardAgent -- routable node that guides users through the postulacion flow.
 
 Wraps the wizard sub-graph (wizard_workflow/wizard_graph) behind the
