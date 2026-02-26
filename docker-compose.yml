@@ -5,6 +5,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        GUARDRAILS_HUB_TOKEN: ${GUARDRAILS_HUB_TOKEN:-}
     container_name: ithaka-backend
     ports:
       - "8000:8000"
