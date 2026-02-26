@@ -5,6 +5,7 @@ Flujo: login -> POST emprendedores -> POST casos.
 Usado cuando el wizard de postulación termina (estado COMPLETED).
 """
 
+import json
 import logging
 import os
 from typing import Any
@@ -18,6 +19,21 @@ BACKOFFICE_BASE_URL = os.getenv("BACKOFFICE_BASE_URL", "http://localhost:8000").
 BACKOFFICE_API_PREFIX = "/api/v1"
 BACKOFFICE_ADMIN_EMAIL = os.getenv("BACKOFFICE_ADMIN_EMAIL", "admin@ithaka.com")
 BACKOFFICE_ADMIN_PASSWORD = os.getenv("BACKOFFICE_ADMIN_PASSWORD", "admin123")
+
+
+def _read_default_id_estado() -> int:
+    raw = (os.getenv("BACKOFFICE_DEFAULT_ID_ESTADO") or "1").strip()
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning(
+            "[BACKOFFICE] BACKOFFICE_DEFAULT_ID_ESTADO invalido=%r, se usa 1 por defecto.",
+            raw,
+        )
+        return 1
+
+
+BACKOFFICE_DEFAULT_ID_ESTADO = _read_default_id_estado()
 
 
 def _parse_full_name(full_name: str) -> tuple[str, str]:
@@ -38,13 +54,66 @@ def _parse_full_name(full_name: str) -> tuple[str, str]:
 
 def _parse_location(location: str) -> tuple[str, str]:
     """Intenta extraer país y ciudad de un string 'País, Ciudad' o similar."""
-    if not (location or location.strip()):
+    if not location or not location.strip():
         return "", ""
     s = location.strip()
     if "," in s:
         parts = [p.strip() for p in s.split(",", 1)]
         return (parts[0] or "", parts[1] if len(parts) > 1 else "")
     return s, ""
+
+
+def _resolve_id_convocatoria(id_convocatoria: int | None) -> int | None:
+    """Resolve id_convocatoria from argument or env, if present and valid."""
+    if id_convocatoria is not None:
+        return id_convocatoria
+
+    raw = (os.getenv("BACKOFFICE_ID_CONVOCATORIA") or "").strip()
+    if not raw:
+        return None
+
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning(
+            "[BACKOFFICE] BACKOFFICE_ID_CONVOCATORIA invalido=%r, se ignora.",
+            raw,
+        )
+        return None
+
+
+def _build_caso_description(wizard_responses: dict[str, Any]) -> str:
+    """Build a non-empty case description from wizard fields."""
+    desc_parts = []
+    if wizard_responses.get("problem_description"):
+        desc_parts.append(f"Problema: {str(wizard_responses.get('problem_description'))[:1000]}")
+    if wizard_responses.get("solution_description"):
+        desc_parts.append(f"Solucion: {str(wizard_responses.get('solution_description'))[:1000]}")
+    if wizard_responses.get("motivation"):
+        desc_parts.append(f"Motivacion: {str(wizard_responses.get('motivation'))[:500]}")
+    if wizard_responses.get("additional_comments"):
+        desc_parts.append(f"Comentarios: {str(wizard_responses.get('additional_comments'))[:1000]}")
+
+    if desc_parts:
+        return "\n\n".join(desc_parts)
+    return "Postulacion generada desde ChatBot."
+
+
+def _sanitize_chatbot_data(wizard_responses: dict[str, Any]) -> dict[str, Any]:
+    """Keep JSON-serializable values for datos_chatbot."""
+    sanitized: dict[str, Any] = {}
+    for key, value in (wizard_responses or {}).items():
+        if value is None or value == "":
+            continue
+        if isinstance(value, (str, int, float, bool, list, dict)):
+            sanitized[key] = value
+            continue
+        try:
+            json.dumps(value)
+            sanitized[key] = value
+        except (TypeError, ValueError):
+            sanitized[key] = str(value)
+    return sanitized
 
 
 def build_emprendedor_payload(wizard_responses: dict[str, Any]) -> dict[str, Any]:
@@ -97,8 +166,8 @@ def build_caso_payload(
     id_convocatoria: int | None = None,
 ) -> dict[str, Any]:
     """Mapea wizard_responses al body de POST /api/v1/casos/."""
-    # nombre_caso: usar problema/idea si existe, sino nombre genérico
-    nombre_caso = "Postulación desde ChatBot"
+    # nombre_caso: usar problema/idea si existe, sino nombre generico
+    nombre_caso = "Postulacion desde ChatBot"
     if wizard_responses.get("problem_description"):
         raw = str(wizard_responses.get("problem_description"))[:200]
         nombre_caso = raw if raw else nombre_caso
@@ -109,26 +178,25 @@ def build_caso_payload(
     payload: dict[str, Any] = {
         "nombre_caso": nombre_caso[:200],
         "id_emprendedor": id_emprendedor,
+        "descripcion": _build_caso_description(wizard_responses),
+        "consentimiento_datos": True,
+        "id_estado": BACKOFFICE_DEFAULT_ID_ESTADO,
     }
-    # descripcion: resumen opcional
-    desc_parts = []
-    if wizard_responses.get("solution_description"):
-        desc_parts.append(str(wizard_responses.get("solution_description"))[:1000])
-    if wizard_responses.get("motivation"):
-        desc_parts.append(f"Motivación: {str(wizard_responses.get('motivation'))[:500]}")
-    if desc_parts:
-        payload["descripcion"] = "\n\n".join(desc_parts)
-    # datos_chatbot: respuestas estructuradas del wizard (recomendado por la integración)
-    datos: dict[str, Any] = {k: v for k, v in wizard_responses.items() if v is not None and v != ""}
+
+    # datos_chatbot: respuestas estructuradas del wizard (recomendado por la integracion)
+    datos = _sanitize_chatbot_data(wizard_responses)
     if datos:
         payload["datos_chatbot"] = datos
-    if id_convocatoria is not None:
-        payload["id_convocatoria"] = id_convocatoria
+
+    resolved_convocatoria = _resolve_id_convocatoria(id_convocatoria)
+    if resolved_convocatoria is not None:
+        payload["id_convocatoria"] = resolved_convocatoria
 
     logger.debug(
-        "[BACKOFFICE] build_caso_payload: id_emprendedor=%s, id_convocatoria=%s, keys=%s",
+        "[BACKOFFICE] build_caso_payload: id_emprendedor=%s, id_convocatoria=%s, id_estado=%s, keys=%s",
         id_emprendedor,
-        id_convocatoria,
+        resolved_convocatoria,
+        payload.get("id_estado"),
         list(payload.keys()),
     )
 
@@ -172,12 +240,14 @@ async def send_postulation_to_backoffice(
     """
     Ejecuta el flujo: login -> crear emprendedor -> crear caso.
     Devuelve (id_emprendedor, id_caso).
-    Lanza excepción si la API no está configurada o falla.
+    Lanza excepcion si la API no esta configurada o falla.
     """
+    resolved_convocatoria = _resolve_id_convocatoria(id_convocatoria)
+
     logger.info(
         "[BACKOFFICE] send_postulation_to_backoffice llamado: base_url=%s, id_convocatoria=%s, total_campos_respuestas=%s",
         BACKOFFICE_BASE_URL,
-        id_convocatoria,
+        resolved_convocatoria,
         len(wizard_responses or {}),
     )
     disabled = os.getenv("BACKOFFICE_INTEGRATION_ENABLED", "true").lower() in ("0", "false", "no")
@@ -192,7 +262,7 @@ async def send_postulation_to_backoffice(
     async with aiohttp.ClientSession() as session:
         token = await _get_access_token(session)
         headers["Authorization"] = f"Bearer {token}"
-        logger.debug("[BACKOFFICE] Autenticado contra Backoffice, iniciando creación de emprendedor.")
+        logger.debug("[BACKOFFICE] Autenticado contra Backoffice, iniciando creacion de emprendedor.")
 
         # 1) Crear emprendedor
         emprendedor_body = build_emprendedor_payload(wizard_responses)
@@ -223,7 +293,7 @@ async def send_postulation_to_backoffice(
         logger.info("[BACKOFFICE] Emprendedor creado id_emprendedor=%s", id_emprendedor)
 
         # 2) Crear caso
-        caso_body = build_caso_payload(wizard_responses, id_emprendedor, id_convocatoria)
+        caso_body = build_caso_payload(wizard_responses, id_emprendedor, resolved_convocatoria)
         url_caso = f"{BACKOFFICE_BASE_URL}{BACKOFFICE_API_PREFIX}/casos/"
         logger.debug(
             "[BACKOFFICE] POST /casos: url=%s, payload_keys=%s",
