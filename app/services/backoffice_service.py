@@ -2,12 +2,12 @@
 Servicio para enviar postulaciones al Backoffice API de Ithaka.
 
 Flujo: login -> POST emprendedores -> POST casos.
-Usado cuando el wizard de postulacion termina (estado COMPLETED).
+Usado cuando el wizard de postulación termina (estado COMPLETED).
 """
 
+import json
 import logging
 import os
-import json
 from typing import Any
 
 import aiohttp
@@ -19,6 +19,8 @@ BACKOFFICE_BASE_URL = os.getenv("BACKOFFICE_BASE_URL", "http://localhost:8000").
 BACKOFFICE_API_PREFIX = "/api/v1"
 BACKOFFICE_ADMIN_EMAIL = os.getenv("BACKOFFICE_ADMIN_EMAIL", "admin@ithaka.com")
 BACKOFFICE_ADMIN_PASSWORD = os.getenv("BACKOFFICE_ADMIN_PASSWORD", "admin123")
+
+
 def _read_default_id_estado() -> int:
     raw = (os.getenv("BACKOFFICE_DEFAULT_ID_ESTADO") or "1").strip()
     try:
@@ -51,7 +53,7 @@ def _parse_full_name(full_name: str) -> tuple[str, str]:
 
 
 def _parse_location(location: str) -> tuple[str, str]:
-    """Intenta extraer pais y ciudad de un string 'Pais, Ciudad' o similar."""
+    """Intenta extraer país y ciudad de un string 'País, Ciudad' o similar."""
     if not location or not location.strip():
         return "", ""
     s = location.strip()

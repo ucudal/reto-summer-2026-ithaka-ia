@@ -28,7 +28,7 @@ _config = yaml.safe_load((Path(__file__).parent / "config" / "wizard.yaml").read
 
 
 class WizardAgent(AgentNode):
-    """Guia al usuario a traves del proceso de postulacion de Ithaka."""
+    """Guía al usuario a través del proceso de postulación de Ithaka."""
 
     name: str = _config["name"]
     description: str = _config["description"]
