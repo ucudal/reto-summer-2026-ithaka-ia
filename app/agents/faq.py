@@ -10,11 +10,16 @@ produces a final text answer.
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
+import numpy as np
 import yaml
+from jinja2 import Environment, FileSystemLoader
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import ToolNode
+from langsmith import traceable
+from langchain_core.tracers.context import tracing_v2_enabled
 
 from .base import AgentNode
 from ..db.config.database import get_async_session
@@ -32,13 +37,22 @@ _TOOLS = [search_faqs]
 
 class FAQAgent(AgentNode):
     """Answers frequently-asked questions using a tool-calling loop."""
-
-    name: str = _config["name"]
-    description: str = _config["description"]
+    
+    name = "faq"
+    description = "Answers frequently asked questions about Ithaka using the knowledge base"
 
     def __init__(self):
+        super().__init__()
+        
         model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         model_cfg = _config["model"]
+
+        # LangSmith configuration
+        self.tracing_enabled = os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true"
+        self.project_name = os.getenv("LANGCHAIN_PROJECT", "ithaka-project")
+        
+        if self.tracing_enabled:
+            logger.info(f"LangSmith tracing enabled for FAQ agent in project: {self.project_name}")
 
         self.llm = ChatOpenAI(
             model=model_name,
@@ -50,7 +64,15 @@ class FAQAgent(AgentNode):
         self.system_message = SystemMessage(
             content=_config["system_prompts"]["contextual"]
         )
+        
+        # Cargar templates Jinja2 para uso futuro si es necesario
+        template_dir = Path(__file__).parent / "prompts"
+        env = Environment(loader=FileSystemLoader(template_dir))
+        self.contextual_template = env.get_template("faq_contextual.j2")
+        self.no_results_template = env.get_template("faq_no_results.j2")
+        self.system_template = env.get_template("faq_system_contextual.j2")
 
+    @traceable(run_type="chain")
     async def __call__(self, state: ConversationState) -> ConversationState:
         """Run the tool-calling loop and return the updated conversation state."""
 
@@ -112,6 +134,7 @@ class FAQAgent(AgentNode):
     # Internal helpers
     # ------------------------------------------------------------------
 
+    @traceable(run_type="chain")
     async def _tool_calling_loop(
         self,
         messages: list,
@@ -141,6 +164,8 @@ class FAQAgent(AgentNode):
 faq_agent = FAQAgent()
 
 
+# Función para usar en el grafo LangGraph
+@traceable(run_type="chain")
 async def handle_faq_query(state: ConversationState) -> ConversationState:
     """Wrapper function for LangGraph."""
     return await faq_agent(state)
