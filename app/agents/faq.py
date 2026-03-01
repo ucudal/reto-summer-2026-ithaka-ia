@@ -38,8 +38,8 @@ _TOOLS = [search_faqs]
 class FAQAgent(AgentNode):
     """Answers frequently-asked questions using a tool-calling loop."""
     
-    name = "faq"
-    description = "Answers frequently asked questions about Ithaka using the knowledge base"
+    name: str = _config["name"]
+    description: str = _config["description"]
 
     def __init__(self):
         super().__init__()
@@ -64,13 +64,6 @@ class FAQAgent(AgentNode):
         self.system_message = SystemMessage(
             content=_config["system_prompts"]["contextual"]
         )
-        
-        # Cargar templates Jinja2 para uso futuro si es necesario
-        template_dir = Path(__file__).parent / "prompts"
-        env = Environment(loader=FileSystemLoader(template_dir))
-        self.contextual_template = env.get_template("faq_contextual.j2")
-        self.no_results_template = env.get_template("faq_no_results.j2")
-        self.system_template = env.get_template("faq_system_contextual.j2")
 
     @traceable(run_type="chain")
     async def __call__(self, state: ConversationState) -> ConversationState:
