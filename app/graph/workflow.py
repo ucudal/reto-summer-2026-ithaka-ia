@@ -155,24 +155,8 @@ class IthakaWorkflow:
             )
 
             logger.info(f"Processing message: {user_message[:50]}...")
-            
-            # Use tracing context if enabled
-            # Generar un ID único para esta conversación
-            conversation_id = str(uuid.uuid4()) if thread_id == "default" else thread_id
-            
-            # Configurar parámetros para el checkpointer
-            config_params = {
-                "configurable": {
-                    "thread_id": conversation_id,
-                    "checkpoint_ns": "ithaka"
-                }
-            }
-            
-            if self.tracing_enabled:
-                with tracing_v2_enabled(project_name=self.project_name):
-                    result = await self.graph.ainvoke(initial_state, config=config_params)
-            else:
-                result = await self.graph.ainvoke(initial_state, config=config_params)
+            config = {"configurable": {"thread_id": thread_id}}
+            result = await self.graph.ainvoke(initial_state, config=config)
 
             logger.debug(f"[WORKFLOW] Graph result keys: {list(result.keys())}")
             logger.debug(f"[WORKFLOW] Result current_agent: {result.get('current_agent')}")
