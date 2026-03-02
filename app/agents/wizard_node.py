@@ -1,5 +1,5 @@
 """
-WizardAgent -- routable node that guides users through the postulación flow.
+WizardAgent -- routable node that guides users through the postulacion flow.
 
 Wraps the wizard sub-graph (wizard_workflow/wizard_graph) behind the
 standard AgentNode interface so the supervisor can route to it by
@@ -13,10 +13,14 @@ from pathlib import Path
 import yaml
 
 from .base import AgentNode
-from ..graph.state import ConversationState
-from .wizard_workflow.wizard_graph import wizard_graph
 from ..db.config.database import SessionLocal
+from ..graph.state import ConversationState
 from ..services import conversation_service
+from ..services.backoffice_service import (
+    BackofficeIntegrationDisabled,
+    send_postulation_to_backoffice,
+)
+from .wizard_workflow.wizard_graph import wizard_graph
 
 logger = logging.getLogger(__name__)
 
@@ -54,30 +58,28 @@ class WizardAgent(AgentNode):
             wizard_state = dict(wizard_state)
             wizard_state["messages"] = state.get("messages", [])
 
-        logger.debug(f"[WIZARD_NODE] Wizard state before sub-graph invoke:")
-        logger.debug(f"[WIZARD_NODE]   session_id={wizard_state.get('wizard_session_id')}")
-        logger.debug(f"[WIZARD_NODE]   current_question={wizard_state.get('current_question')}")
-        logger.debug(f"[WIZARD_NODE]   wizard_status={wizard_state.get('wizard_status')}")
-        logger.debug(f"[WIZARD_NODE]   awaiting_answer={wizard_state.get('awaiting_answer')}")
-        logger.debug(f"[WIZARD_NODE]   completed={wizard_state.get('completed')}")
-        logger.debug(f"[WIZARD_NODE]   answers count={len(wizard_state.get('answers', []))}")
-        logger.debug(f"[WIZARD_NODE]   messages count={len(wizard_state.get('messages', []))}")
-        for i, m in enumerate(wizard_state.get("messages", [])):
-            logger.debug(f"[WIZARD_NODE]   msg[{i}] type={m.type} content={m.content[:100]!r}...")
+        logger.debug("[WIZARD_NODE] Wizard state before sub-graph invoke:")
+        logger.debug("[WIZARD_NODE]   session_id=%s", wizard_state.get("wizard_session_id"))
+        logger.debug("[WIZARD_NODE]   current_question=%s", wizard_state.get("current_question"))
+        logger.debug("[WIZARD_NODE]   wizard_status=%s", wizard_state.get("wizard_status"))
+        logger.debug("[WIZARD_NODE]   awaiting_answer=%s", wizard_state.get("awaiting_answer"))
+        logger.debug("[WIZARD_NODE]   completed=%s", wizard_state.get("completed"))
+        logger.debug("[WIZARD_NODE]   answers count=%d", len(wizard_state.get("answers", [])))
+        logger.debug("[WIZARD_NODE]   messages count=%d", len(wizard_state.get("messages", [])))
+        for i, msg in enumerate(wizard_state.get("messages", [])):
+            logger.debug("[WIZARD_NODE]   msg[%d] type=%s content=%r...", i, msg.type, msg.content[:100])
 
         result = await wizard_graph.ainvoke(wizard_state)
 
         response_content = (
-            result.get("messages", [])[-1].content
-            if result.get("messages")
-            else ""
+            result.get("messages", [])[-1].content if result.get("messages") else ""
         )
 
-        logger.debug(f"[WIZARD_NODE] Sub-graph result:")
-        logger.debug(f"[WIZARD_NODE]   current_question={result.get('current_question')}")
-        logger.debug(f"[WIZARD_NODE]   completed={result.get('completed')}")
-        logger.debug(f"[WIZARD_NODE]   wizard_status={result.get('wizard_status')}")
-        logger.debug(f"[WIZARD_NODE]   response (first 200 chars): {response_content[:200]!r}")
+        logger.debug("[WIZARD_NODE] Sub-graph result:")
+        logger.debug("[WIZARD_NODE]   current_question=%s", result.get("current_question"))
+        logger.debug("[WIZARD_NODE]   completed=%s", result.get("completed"))
+        logger.debug("[WIZARD_NODE]   wizard_status=%s", result.get("wizard_status"))
+        logger.debug("[WIZARD_NODE]   response (first 200 chars): %r", response_content[:200])
 
         # --- Persistencia en DB ---
         conv_id = state.get("conversation_id")
@@ -119,16 +121,50 @@ class WizardAgent(AgentNode):
                 except Exception:
                     await db_session.rollback()
                     raise
-        except Exception as e:
-            logger.error(f"[WIZARD_NODE] Error al persistir en DB: {e}", exc_info=True)
+        except Exception as exc:
+            logger.error("[WIZARD_NODE] Error al persistir en DB: %s", exc, exc_info=True)
+
+        # --- Enviar al Backoffice API cuando el wizard termina ---
+        logger.info(
+            "[WIZARD_NODE] Evaluando envio al Backoffice: completed=%s, has_wizard_responses=%s, email=%s",
+            bool(result.get("completed")),
+            bool(wizard_responses),
+            email,
+        )
+
+        if result.get("completed") and wizard_responses:
+            logger.info(
+                "[WIZARD_NODE] Iniciando envio al Backoffice para email=%s con %d campos en wizard_responses",
+                email,
+                len(wizard_responses),
+            )
+            try:
+                id_emp, id_caso = await send_postulation_to_backoffice(wizard_responses)
+                logger.info(
+                    "[WIZARD_NODE] Postulacion enviada al backoffice: id_emprendedor=%s, id_caso=%s",
+                    id_emp,
+                    id_caso,
+                )
+            except BackofficeIntegrationDisabled:
+                logger.debug("[WIZARD_NODE] Integracion backoffice desactivada, omitiendo envio.")
+            except Exception as exc:
+                logger.error(
+                    "[WIZARD_NODE] Error al enviar postulacion al backoffice: %s",
+                    exc,
+                    exc_info=True,
+                )
+        else:
+            logger.debug(
+                "[WIZARD_NODE] No se envia al Backoffice: completed=%s, has_wizard_responses=%s",
+                bool(result.get("completed")),
+                bool(wizard_responses),
+            )
 
         return {
             **state,
             "wizard_state": result,
             "messages": result.get("messages", []),
-            "agent_context": {
-                "response": response_content
-            },
+            "agent_context": {"response": response_content},
             "conversation_id": conv_id,
         }
 
@@ -141,5 +177,5 @@ wizard_agent = WizardAgent()
 
 
 async def handle_wizard_flow(state: ConversationState) -> ConversationState:
-    """Función wrapper para LangGraph."""
+    """Funcion wrapper para LangGraph."""
     return await wizard_agent(state)

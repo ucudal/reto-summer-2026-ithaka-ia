@@ -12,6 +12,8 @@ WORKDIR /app
 
 # Pin uv to a trusted version; bump deliberately during dependency maintenance.
 ARG UV_VERSION=0.5.31
+# Optional Guardrails Hub token to pre-install validators during build.
+ARG GUARDRAILS_HUB_TOKEN=""
 
 # Install system dependencies
 RUN apt-get update \
@@ -22,8 +24,8 @@ RUN apt-get update \
 
 # Install Python dependencies with uv
 COPY requirements.txt .
-RUN pip install --no-cache-dir "uv==${UV_VERSION}" \
-    && uv pip install --system -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
 # Copy project
 COPY . .
@@ -34,6 +36,15 @@ RUN chmod +x start.sh
 # Create a non-root user
 RUN adduser --disabled-password --gecos '' appuser \
     && chown -R appuser:appuser /app
+
+# Optionally install Guardrails validators at build-time when a Hub token is provided.
+RUN if [ -n "$GUARDRAILS_HUB_TOKEN" ]; then \
+        guardrails configure --token "${GUARDRAILS_HUB_TOKEN}" --disable-metrics --disable-remote-inferencing; \
+        guardrails hub install hub://guardrails/detect_jailbreak; \
+    else \
+        echo "Skipping Guardrails Hub install (provide GUARDRAILS_HUB_TOKEN build arg to enable)."; \
+    fi
+
 USER appuser
 
 # Expose port

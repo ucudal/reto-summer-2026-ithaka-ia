@@ -72,6 +72,28 @@ TWILIO_ACCOUNT_SID=your-sid
 TWILIO_AUTH_TOKEN=your-token
 ```
 
+### Guardrails para el Wizard
+
+El wizard ahora usa el validador [`DetectJailbreak`](https://guardrailsai.com/hub/validator/guardrails/detect_jailbreak) para bloquear intentos de prompt injection.
+
+1. Instalá las dependencias (el `requirements.txt` ya incluye `guardrails-ai>=0.5.10`).
+2. Descargá el recurso desde Guardrails Hub una sola vez:
+   ```bash
+   guardrails hub install hub://guardrails/detect_jailbreak
+   ```
+3. Configurá (o dejá por defecto) las variables:
+   ```bash
+   WIZARD_DETECT_JAILBREAK_ENABLED=true
+   WIZARD_DETECT_JAILBREAK_THRESHOLD=0.9
+   ```
+4. (Opcional) Para imágenes Docker, pasá el token del Guardrails Hub como build-arg para que el validador quede horneado:
+   ```bash
+   docker compose build --build-arg GUARDRAILS_HUB_TOKEN=tu_token
+   ```
+   También podés definir `GUARDRAILS_HUB_TOKEN` en tu archivo `.env` (no lo comitees) y `docker compose` lo inyectará automáticamente gracias a `build.args`.
+
+Si el validador no está disponible, el sistema seguirá usando el filtro de patrones, pero se recomienda mantener ambos mecanismos activos.
+
 ### 5. Configurar base de datos
 
 #### Crear usuario y base de datos (si no existen):

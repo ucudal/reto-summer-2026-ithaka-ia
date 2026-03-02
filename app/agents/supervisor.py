@@ -12,6 +12,8 @@ from pathlib import Path
 import yaml
 from jinja2 import Environment, FileSystemLoader
 from openai import AsyncOpenAI
+from langsmith import traceable
+from langchain_core.tracers.context import tracing_v2_enabled
 
 from ..graph.agent_descriptions import (
     DEFAULT_AGENT,
@@ -40,6 +42,13 @@ class SupervisorAgent:
 
         self.client = AsyncOpenAI(api_key=api_key)
         self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        
+        # LangSmith configuration
+        self.tracing_enabled = os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true"
+        self.project_name = os.getenv("LANGCHAIN_PROJECT", "ithaka-project")
+        
+        if self.tracing_enabled:
+            logger.info(f"LangSmith tracing enabled for Supervisor agent in project: {self.project_name}")
 
     # ------------------------------------------------------------------
     # Public interface used by the LangGraph workflow
@@ -49,6 +58,7 @@ class SupervisorAgent:
     # ~30 000 chars ≈ 7 500 tokens, suficiente para un documento largo.
     _MAX_DOC_CHARS = 30_000
 
+    @traceable(run_type="chain")
     async def route_message(self, state: ConversationState) -> ConversationState:
         """Analiza el mensaje del usuario y decide el routing."""
 
@@ -110,9 +120,7 @@ class SupervisorAgent:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    async def _route_by_descriptions(
-        self, message: str, messages: list, state: ConversationState | None = None
-    ) -> str:
+    async def _route_by_descriptions(self, message: str, messages: list) -> str:
         """Usa el LLM para elegir el agente cuya descripción mejor
         coincide con la intención del usuario."""
 
@@ -228,11 +236,13 @@ class SupervisorAgent:
 supervisor_agent = SupervisorAgent()
 
 
+@traceable(run_type="chain")
 async def route_message(state: ConversationState) -> ConversationState:
     """Función wrapper para LangGraph."""
     return await supervisor_agent.route_message(state)
 
 
+@traceable(run_type="chain")
 def decide_next_agent_wrapper(state: ConversationState) -> str:
     """Función wrapper para routing condicional en LangGraph."""
     return supervisor_agent.decide_next_agent(state)

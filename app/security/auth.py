@@ -1,11 +1,17 @@
 import os
 import secrets
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
+import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-me-in-production")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+JWT_EXPIRATION_MINUTES = int(os.getenv("JWT_EXPIRATION_MINUTES", "60"))
 
 
 @dataclass(frozen=True)
@@ -76,3 +82,37 @@ async def require_admin_user(
             detail="Permisos insuficientes. Se requiere rol admin",
         )
     return user
+
+
+# ---------------------------------------------------------------------------
+# JWT helpers for WebSocket conversation tokens
+# ---------------------------------------------------------------------------
+
+def create_conversation_token(conversation_id: int) -> str:
+    """Sign a short-lived JWT that embeds the conversation ID."""
+    payload = {
+        "sub": str(conversation_id),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRATION_MINUTES),
+        "iat": datetime.now(timezone.utc),
+    }
+    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+
+def verify_conversation_token(token: str) -> int:
+    """Validate a conversation JWT and return the integer conversation_id.
+
+    Raises ``HTTPException(401)`` on any validation failure.
+    """
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        return int(payload["sub"])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token expirado",
+        )
+    except (jwt.InvalidTokenError, KeyError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Token inválido: {exc}",
+        )
