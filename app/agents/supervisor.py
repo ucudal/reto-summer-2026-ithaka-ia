@@ -21,6 +21,8 @@ from ..graph.agent_descriptions import (
     ROUTABLE_AGENTS,
 )
 from ..graph.state import ConversationState
+from ..graph.document_extractor import extract_attachment, extract_text_from_message
+from ..services.document_ingestion_service import document_ingestion_service
 
 logger = logging.getLogger(__name__)
 
@@ -52,20 +54,33 @@ class SupervisorAgent:
     # Public interface used by the LangGraph workflow
     # ------------------------------------------------------------------
 
+    # Máximo de caracteres del documento que se inyecta como contexto.
+    # ~30 000 chars ≈ 7 500 tokens, suficiente para un documento largo.
+    _MAX_DOC_CHARS = 30_000
+
     @traceable(run_type="chain")
     async def route_message(self, state: ConversationState) -> ConversationState:
         """Analiza el mensaje del usuario y decide el routing."""
 
         messages = state.get("messages", [])
-        chat_history = [m.content for m in messages if m.type == "human"]
-        user_message = chat_history[-1].strip()
+        human_messages = [m for m in messages if m.type == "human"]
+
+        # Extraer texto del último mensaje humano (soporta contenido multimodal)
+        user_message = extract_text_from_message(human_messages[-1]).strip() if human_messages else ""
+
+        # --- Detección de documento adjunto ---
+        if human_messages:
+            self._maybe_extract_document(human_messages[-1], state)
 
         logger.debug("=" * 60)
         logger.debug("[SUPERVISOR] route_message called")
         logger.debug(f"[SUPERVISOR] User message: {user_message!r}")
+        logger.debug(f"[SUPERVISOR] Document context: {bool(state.get('document_context'))} "
+                     f"file={state.get('document_filename')!r}")
         logger.debug(f"[SUPERVISOR] Total messages in state: {len(messages)}")
         for i, m in enumerate(messages):
-            logger.debug(f"[SUPERVISOR]   msg[{i}] type={m.type} content={m.content[:100]!r}...")
+            text = extract_text_from_message(m)
+            logger.debug(f"[SUPERVISOR]   msg[{i}] type={m.type} content={text[:100]!r}...")
 
         # 1. Estado: si hay wizard activo, mantenerlo sin llamar al LLM
         wizard_state_obj = state.get("wizard_state")
@@ -82,7 +97,7 @@ class SupervisorAgent:
                 return self._route_to(state, "wizard")
 
         # 2. Routing basado 100% en LLM usando contexto conversacional completo
-        intention = await self._route_by_descriptions(user_message, messages)
+        intention = await self._route_by_descriptions(user_message, messages, state=state)
 
         state["supervisor_decision"] = intention
         state["current_agent"] = intention
@@ -105,7 +120,6 @@ class SupervisorAgent:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    @traceable(run_type="llm")
     async def _route_by_descriptions(self, message: str, messages: list) -> str:
         """Usa el LLM para elegir el agente cuya descripción mejor
         coincide con la intención del usuario."""
@@ -120,13 +134,21 @@ class SupervisorAgent:
                 f'"{name}"' for name, _ in ROUTABLE_AGENTS
             )
 
-            # Contexto conversacional completo (últimos turnos user/assistant)
-            context = ""
+            # Contexto conversacional (últimos turnos + documento si existe)
+            context_lines = []
             if messages:
-                context = "\n".join(
-                    f"- {'Usuario' if msg.type == 'human' else 'Asistente'}: {msg.content}"
-                    for msg in messages[-6:]
+                for msg in messages[-6:]:
+                    role = "Usuario" if msg.type == "human" else "Asistente"
+                    text = extract_text_from_message(msg)
+                    context_lines.append(f"- {role}: {text}")
+
+            if state and state.get("document_context"):
+                filename = state.get("document_filename", "documento")
+                context_lines.append(
+                    f"- [Sistema]: El usuario ha adjuntado el documento: {filename!r}"
                 )
+
+            context = "\n".join(context_lines)
 
             system_prompt = _prompts.get_template("supervisor_system.j2").render()
             prompt = _prompts.get_template("supervisor_route.j2").render(
@@ -176,6 +198,28 @@ class SupervisorAgent:
         except Exception as e:
             logger.error(f"[SUPERVISOR] Error in description-based routing: {e}", exc_info=True)
             return DEFAULT_AGENT
+
+    def _maybe_extract_document(self, message, state: ConversationState) -> None:
+        """Si el mensaje tiene un archivo adjunto, extrae el texto y lo guarda en el estado."""
+        attachment = extract_attachment(message)
+        if not attachment:
+            return
+        filename, file_bytes = attachment
+        try:
+            _, text = document_ingestion_service.extract_file_text(filename, file_bytes)
+            if len(text) > self._MAX_DOC_CHARS:
+                text = text[:self._MAX_DOC_CHARS]
+                logger.info(
+                    f"[SUPERVISOR] Documento truncado a {self._MAX_DOC_CHARS} chars: {filename!r}"
+                )
+            state["document_context"] = text
+            state["document_filename"] = filename
+            logger.info(f"[SUPERVISOR] Documento procesado: {filename!r} ({len(text)} chars)")
+        except Exception as e:
+            logger.error(
+                f"[SUPERVISOR] Error al procesar documento adjunto {filename!r}: {e}",
+                exc_info=True,
+            )
 
     @staticmethod
     def _route_to(state: ConversationState, agent: str) -> ConversationState:
