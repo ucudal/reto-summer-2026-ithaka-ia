@@ -30,8 +30,12 @@ class ChatService:
         message: str,
         conversation_id: int,
         wizard_state: Optional[dict[str, Any]] = None,
+        attachment: Optional[dict] = None,
     ) -> dict[str, Any]:
-        """Send *message* through the workflow, persisting both sides to DB."""
+        """Send *message* (always a plain string) through the workflow,
+        persisting both sides to DB.  *attachment* carries the raw file
+        metadata (filename, base64 data, media_type) extracted at the WS
+        layer."""
 
         thread_id = str(conversation_id)
 
@@ -44,6 +48,7 @@ class ChatService:
             wizard_state=wizard_state,
             conversation_id=conversation_id,
             thread_id=thread_id,
+            attachment=attachment,
         )
 
         response_text = result.get("response", "")

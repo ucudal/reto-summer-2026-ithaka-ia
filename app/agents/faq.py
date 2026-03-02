@@ -15,7 +15,7 @@ from typing import Any
 import numpy as np
 import yaml
 from jinja2 import Environment, FileSystemLoader
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import ToolNode
 from langsmith import traceable
@@ -73,8 +73,26 @@ class FAQAgent(AgentNode):
         logger.debug("[FAQ] __call__ invoked (tool-calling pattern)")
 
         try:
-            messages = list(state.get("messages", []))
-            user_message = [m.content for m in messages if m.type == "human"][-1]
+            raw_messages = list(state.get("messages", []))
+            messages = self._sanitize_messages(raw_messages)
+
+            user_message = next(
+                (m.content for m in reversed(messages) if isinstance(m, HumanMessage)),
+                "",
+            )
+
+            doc_context = state.get("document_context")
+            if doc_context:
+                doc_filename = state.get("document_filename", "documento")
+                cap = 12_000
+                snippet = doc_context[:cap] + ("..." if len(doc_context) > cap else "")
+                for i in range(len(messages) - 1, -1, -1):
+                    if isinstance(messages[i], HumanMessage):
+                        prev = messages[i].content or ""
+                        messages[i] = HumanMessage(
+                            content=f"{prev}\n\n[Documento adjunto: {doc_filename}]\n{snippet}"
+                        )
+                        break
 
             if not any(isinstance(m, SystemMessage) for m in messages):
                 messages = [self.system_message] + messages
@@ -87,7 +105,7 @@ class FAQAgent(AgentNode):
                     conv_id = await conversation_service.get_or_create_conversation(
                         session, conv_id
                     )
-                    await conversation_service.save_message(session, conv_id, "user", user_message)
+                    await conversation_service.save_message(session, conv_id, "user", user_message or "")
                     await conversation_service.save_message(session, conv_id, "assistant", response)
                     await session.commit()
                 except Exception as db_err:
@@ -126,6 +144,35 @@ class FAQAgent(AgentNode):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _sanitize_messages(messages: list) -> list:
+        """Ensure every message has ``content`` as a plain string.
+
+        The LangGraph checkpointer (``add_messages``) may replay old
+        ``HumanMessage`` objects whose ``content`` is a list of
+        multimodal parts from before the WS-layer extraction fix.
+        OpenAI rejects these, so we flatten them here.
+        """
+        clean: list = []
+        for m in messages:
+            content = getattr(m, "content", None)
+            if isinstance(content, list):
+                text_parts = [
+                    p.get("text", "")
+                    for p in content
+                    if isinstance(p, dict) and p.get("type") == "text"
+                ]
+                flat = " ".join(t.strip() for t in text_parts).strip() or ""
+                if getattr(m, "type", None) == "ai":
+                    clean.append(AIMessage(content=flat))
+                elif isinstance(m, SystemMessage):
+                    clean.append(SystemMessage(content=flat))
+                else:
+                    clean.append(HumanMessage(content=flat))
+            else:
+                clean.append(m)
+        return clean
 
     @traceable(run_type="chain")
     async def _tool_calling_loop(

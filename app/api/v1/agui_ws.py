@@ -25,6 +25,45 @@ def _agui_event(event_type: str, **fields) -> str:
     return json.dumps({"type": event_type, **fields})
 
 
+def _extract_text_and_attachment(
+    raw_message,
+) -> tuple[str, dict | None]:
+    """Split a raw WS message into (text, attachment_dict|None).
+
+    ``raw_message`` can be:
+    - ``str`` – plain text, no attachment.
+    - ``list`` – multimodal parts from the frontend
+      (``{type:"text", text:"…"}``, ``{type:"file", filename:"…", data:"…", media_type:"…"}``).
+    """
+    if isinstance(raw_message, str):
+        return raw_message.strip(), None
+
+    if not isinstance(raw_message, list) or not raw_message:
+        return "", None
+
+    text_parts: list[str] = []
+    attachment: dict | None = None
+
+    for part in raw_message:
+        if not isinstance(part, dict):
+            continue
+        ptype = part.get("type", "")
+        if ptype == "text":
+            text_parts.append(part.get("text", ""))
+        elif ptype in ("file", "document") and attachment is None:
+            attachment = {
+                "filename": part.get("filename") or part.get("name") or "document",
+                "data": part.get("data") or part.get("source") or "",
+                "media_type": part.get("media_type", "application/octet-stream"),
+            }
+
+    text = " ".join(t.strip() for t in text_parts).strip()
+    if not text and attachment:
+        text = f"[Documento adjunto: {attachment['filename']}]"
+
+    return text, attachment
+
+
 @router.websocket("/ws")
 async def agui_websocket(
     websocket: WebSocket,
@@ -46,8 +85,17 @@ async def agui_websocket(
                 )
                 continue
 
-            user_message = data.get("message", "").strip()
-            if not user_message:
+            raw_message = data.get("message")
+            user_message, attachment = _extract_text_and_attachment(raw_message)
+
+            logger.info(
+                "[AG-UI] Incoming message type=%s, text_len=%d, has_attachment=%s",
+                type(raw_message).__name__,
+                len(user_message),
+                attachment is not None,
+            )
+
+            if not user_message and not attachment:
                 await websocket.send_text(
                     _agui_event("RUN_ERROR", message="Empty message", code="BAD_REQUEST")
                 )
@@ -66,6 +114,7 @@ async def agui_websocket(
                     message=user_message,
                     conversation_id=conversation_id,
                     wizard_state=wizard_state,
+                    attachment=attachment,
                 )
 
                 response_text = result.get("response", "")
