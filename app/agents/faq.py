@@ -34,6 +34,36 @@ _config = yaml.safe_load((_AGENTS_DIR / "config" / "faq.yaml").read_text())
 
 _TOOLS = [search_faqs]
 
+# Respuesta predefinida cuando el usuario pide explícitamente "Preguntas frecuentes"
+# (p. ej. al tocar la burbuja en el front).
+RESPUESTA_PREGUNTAS_FRECUENTES = """**Preguntas frecuentes sobre Ithaka**
+
+Acá tenés un resumen de los temas sobre los que más nos preguntan. Podés escribirme cualquier duda concreta y te respondo en base a nuestra base de conocimiento.
+
+**Temas habituales:**
+• **Cursos y capacitaciones** — Electivas, minor en innovación y emprendimiento, formación en emprendimiento.
+• **Programa Fellows** — Beca con Stanford/Twente, selección de 4 estudiantes UCU, viaje a Países Bajos.
+• **Costos** — Todas nuestras actividades son gratuitas para la comunidad UCU.
+• **Convocatorias y novedades** — Redes sociales (Instagram, Twitter, LinkedIn) y newsletter.
+• **Centro Ithaka** — Abierto a estudiantes, egresados, profesores y emprendedores externos.
+• **Freelance y emprendimiento** — Cursos y mentorías para desarrollar tu marca personal.
+
+Escribí tu pregunta en lenguaje natural (por ejemplo: *¿Cuánto cuestan los cursos?*, *¿Qué es el programa Fellows?*) y te respondo con la información oficial de Ithaka."""
+
+
+def _is_preguntas_frecuentes_intent(text: str) -> bool:
+    """True si el mensaje del usuario corresponde a la burbuja 'Preguntas frecuentes'."""
+    if not text or not isinstance(text, str):
+        return False
+    normalized = text.strip().lower()
+    if not normalized:
+        return False
+    if normalized in ("preguntas frecuentes", "faq", "preguntas mas frecuentes"):
+        return True
+    if "preguntas frecuentes" in normalized and len(normalized) < 80:
+        return True
+    return False
+
 
 class FAQAgent(AgentNode):
     """Answers frequently-asked questions using a tool-calling loop."""
@@ -81,23 +111,29 @@ class FAQAgent(AgentNode):
                 "",
             )
 
-            doc_context = state.get("document_context")
-            if doc_context:
-                doc_filename = state.get("document_filename", "documento")
-                cap = 12_000
-                snippet = doc_context[:cap] + ("..." if len(doc_context) > cap else "")
-                for i in range(len(messages) - 1, -1, -1):
-                    if isinstance(messages[i], HumanMessage):
-                        prev = messages[i].content or ""
-                        messages[i] = HumanMessage(
-                            content=f"{prev}\n\n[Documento adjunto: {doc_filename}]\n{snippet}"
-                        )
-                        break
+            # Respuesta predefinida para la burbuja "Preguntas frecuentes"
+            if _is_preguntas_frecuentes_intent(user_message):
+                logger.info("[FAQ] Respuesta predefinida para 'Preguntas frecuentes'")
+                response = RESPUESTA_PREGUNTAS_FRECUENTES
+            else:
+                # Inyectar contenido del documento adjunto si existe
+                doc_context = state.get("document_context")
+                if doc_context:
+                    doc_filename = state.get("document_filename", "documento")
+                    cap = 12_000
+                    snippet = doc_context[:cap] + ("..." if len(doc_context) > cap else "")
+                    for i in range(len(messages) - 1, -1, -1):
+                        if isinstance(messages[i], HumanMessage):
+                            prev = messages[i].content or ""
+                            messages[i] = HumanMessage(
+                                content=f"{prev}\n\n[Documento adjunto: {doc_filename}]\n{snippet}"
+                            )
+                            break
 
-            if not any(isinstance(m, SystemMessage) for m in messages):
-                messages = [self.system_message] + messages
+                if not any(isinstance(m, SystemMessage) for m in messages):
+                    messages = [self.system_message] + messages
 
-            response = await self._tool_calling_loop(messages)
+                response = await self._tool_calling_loop(messages)
 
             conv_id = state.get("conversation_id")
             async for session in get_async_session():
