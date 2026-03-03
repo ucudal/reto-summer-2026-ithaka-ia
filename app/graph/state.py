@@ -25,3 +25,8 @@ class ConversationState(TypedDict):
     agent_context: Dict[str, Any]
     # Referencia al wizard state, no los campos del wizard
     wizard_state: Optional[WizardState]
+    # Documento subido por el usuario: texto extraído y nombre del archivo.
+    # Persiste en el estado para toda la conversación y se reemplaza
+    # cuando el usuario sube un nuevo documento.
+    document_context: Optional[str]
+    document_filename: Optional[str]

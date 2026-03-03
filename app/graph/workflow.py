@@ -2,6 +2,7 @@
 Workflow principal de LangGraph para orquestar todos los agentes del sistema Ithaka
 """
 
+import base64
 import logging
 import os
 from typing import Any
@@ -21,6 +22,7 @@ from ..agents.faq import handle_faq_query
 from ..agents.supervisor import route_message, decide_next_agent_wrapper
 from ..agents.validator import handle_validation
 from ..agents.wizard_node import handle_wizard_flow
+from ..services.document_ingestion_service import document_ingestion_service
 
 logger = logging.getLogger(__name__)
 
@@ -73,20 +75,22 @@ class IthakaWorkflow:
         # Usar configuración básica para el checkpointer
         return workflow.compile(checkpointer=InMemorySaver())
 
+    _MAX_DOC_CHARS = 30_000
+
     def _create_initial_state(
         self,
         user_message: str,
         wizard_state: dict[str, Any] | None = None,
         conversation_id: int | None = None,
         user_email: str | None = None,
+        attachment: dict | None = None,
     ) -> ConversationState:
         """Crea el estado inicial para el workflow.
 
-        - Siempre incluye el último mensaje humano.
-        - Usa ``conversation_id`` para enlazar con la conversación en DB.
-        - Solo sobreescribe el ``wizard_state`` cuando el frontend envía uno
-          explícitamente; de lo contrario, se reutiliza el estado persistido
-          por el checkpointer de LangGraph.
+        ``user_message`` is always a plain string.  If the frontend sent
+        a file, the WS layer passes it via ``attachment`` (dict with
+        *filename*, *data* (base64), *media_type*).  We decode it here
+        and populate ``document_context`` / ``document_filename``.
         """
 
         base_state: ConversationState = {
@@ -97,10 +101,9 @@ class IthakaWorkflow:
             "agent_context": {},
         }
 
-        # Cuando el frontend envía un snapshot del wizard, úsalo para
-        # reconstruir el estado (por ejemplo después de un restart del backend).
-        # Si no se envía nada, dejamos que el checkpointer reutilice el
-        # ``wizard_state`` previo sin tocarlo.
+        if attachment:
+            self._process_attachment(attachment, base_state)
+
         if wizard_state:
             wizard_state_obj = {
                 "wizard_session_id": wizard_state.get("wizard_session_id"),
@@ -117,6 +120,28 @@ class IthakaWorkflow:
 
         return base_state
 
+    def _process_attachment(
+        self, attachment: dict, state: ConversationState
+    ) -> None:
+        """Decode base64 file from *attachment* and store extracted text in state."""
+        filename = attachment.get("filename", "document")
+        raw_b64 = attachment.get("data", "")
+        if not raw_b64:
+            logger.warning("[WORKFLOW] Attachment present but 'data' is empty")
+            return
+        try:
+            file_bytes = base64.b64decode(raw_b64)
+            _, text = document_ingestion_service.extract_file_text(filename, file_bytes)
+            if len(text) > self._MAX_DOC_CHARS:
+                text = text[: self._MAX_DOC_CHARS]
+            state["document_context"] = text
+            state["document_filename"] = filename
+            logger.info(
+                "[WORKFLOW] Documento procesado: %r (%d chars)", filename, len(text)
+            )
+        except Exception as e:
+            logger.error("[WORKFLOW] Error procesando adjunto: %s", e, exc_info=True)
+
     @traceable(run_type="chain")
     async def process_message(
         self,
@@ -124,37 +149,37 @@ class IthakaWorkflow:
         wizard_state: dict[str, Any] | None = None,
         conversation_id: int | None = None,
         thread_id: str | None = None,
+        attachment: dict | None = None,
     ) -> dict[str, Any]:
-        """Procesa un mensaje del usuario a través del grafo de agentes"""
+        """Procesa un mensaje del usuario a través del grafo de agentes.
+
+        ``user_message`` is always a plain string.
+        ``attachment``, if present, carries the raw file metadata from the WS layer.
+        """
 
         try:
-            # Crear estado inicial
             initial_state = self._create_initial_state(
                 user_message=user_message,
                 wizard_state=wizard_state,
                 conversation_id=conversation_id,
+                attachment=attachment,
             )
 
-            # Determinar thread_id si no viene explícito
             if thread_id is None:
                 thread_id = str(conversation_id) if conversation_id is not None else "default"
 
-            logger.debug("=" * 80)
-            logger.debug("[WORKFLOW] process_message called")
-            logger.debug(f"[WORKFLOW] User message: {user_message!r}")
-            logger.debug(f"[WORKFLOW] Thread ID: {thread_id}")
-            logger.debug(f"[WORKFLOW] Incoming wizard_state: {wizard_state}")
-            logger.debug(f"[WORKFLOW] Initial state keys: {list(initial_state.keys())}")
-            ws = initial_state.get("wizard_state") or {}
-            logger.debug(
-                "[WORKFLOW] Initial wizard_state: status=%s, question=%s, awaiting=%s, completed=%s",
-                ws.get("wizard_status"),
-                ws.get("current_question"),
-                ws.get("awaiting_answer"),
-                ws.get("completed"),
+            has_doc = bool(initial_state.get("document_context"))
+            logger.info(
+                "[WORKFLOW] process_message: text_len=%d has_doc=%s doc_file=%r",
+                len(user_message),
+                has_doc,
+                initial_state.get("document_filename"),
             )
+            logger.debug("[WORKFLOW] User message: %r", user_message[:120])
+            logger.debug(f"[WORKFLOW] Thread ID: {thread_id}")
+            logger.debug(f"[WORKFLOW] Initial state keys: {list(initial_state.keys())}")
 
-            logger.info(f"Processing message: {user_message[:50]}...")
+            logger.info("Processing message: %s", user_message[:50] + "..." if len(user_message) > 50 else user_message)
             config = {"configurable": {"thread_id": thread_id}}
             result = await self.graph.ainvoke(initial_state, config=config)
 

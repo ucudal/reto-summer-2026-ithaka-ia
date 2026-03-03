@@ -21,6 +21,7 @@ from ..graph.agent_descriptions import (
     ROUTABLE_AGENTS,
 )
 from ..graph.state import ConversationState
+from ..graph.document_extractor import extract_text_from_message
 
 logger = logging.getLogger(__name__)
 
@@ -57,15 +58,21 @@ class SupervisorAgent:
         """Analiza el mensaje del usuario y decide el routing."""
 
         messages = state.get("messages", [])
-        chat_history = [m.content for m in messages if m.type == "human"]
-        user_message = chat_history[-1].strip()
+        human_messages = [m for m in messages if m.type == "human"]
 
-        logger.debug("=" * 60)
-        logger.debug("[SUPERVISOR] route_message called")
-        logger.debug(f"[SUPERVISOR] User message: {user_message!r}")
-        logger.debug(f"[SUPERVISOR] Total messages in state: {len(messages)}")
-        for i, m in enumerate(messages):
-            logger.debug(f"[SUPERVISOR]   msg[{i}] type={m.type} content={m.content[:100]!r}...")
+        user_message = (
+            extract_text_from_message(human_messages[-1]).strip()
+            if human_messages
+            else ""
+        )
+
+        has_doc = bool(state.get("document_context"))
+        logger.info(
+            "[SUPERVISOR] route_message: user=%r has_doc=%s doc_file=%r",
+            user_message[:80],
+            has_doc,
+            state.get("document_filename"),
+        )
 
         # 1. Estado: si hay wizard activo, mantenerlo sin llamar al LLM
         wizard_state_obj = state.get("wizard_state")
@@ -82,7 +89,11 @@ class SupervisorAgent:
                 return self._route_to(state, "wizard")
 
         # 2. Routing basado 100% en LLM usando contexto conversacional completo
-        intention = await self._route_by_descriptions(user_message, messages)
+        intention = await self._route_by_descriptions(
+            user_message,
+            messages,
+            state=state,
+        )
 
         state["supervisor_decision"] = intention
         state["current_agent"] = intention
@@ -106,7 +117,13 @@ class SupervisorAgent:
     # ------------------------------------------------------------------
 
     @traceable(run_type="llm")
-    async def _route_by_descriptions(self, message: str, messages: list) -> str:
+    async def _route_by_descriptions(
+        self,
+        message: str,
+        messages: list,
+        *,
+        state: ConversationState | None = None,
+    ) -> str:
         """Usa el LLM para elegir el agente cuya descripción mejor
         coincide con la intención del usuario."""
 
@@ -116,17 +133,31 @@ class SupervisorAgent:
                 f'- "{name}": {description}'
                 for name, description in ROUTABLE_AGENTS
             )
-            valid_names = ", ".join(
-                f'"{name}"' for name, _ in ROUTABLE_AGENTS
-            )
+            valid_names = ", ".join(f'"{name}"' for name, _ in ROUTABLE_AGENTS)
 
-            # Contexto conversacional completo (últimos turnos user/assistant)
-            context = ""
+            # Contexto conversacional (últimos turnos + documento si existe)
+            context_lines = []
             if messages:
-                context = "\n".join(
-                    f"- {'Usuario' if msg.type == 'human' else 'Asistente'}: {msg.content}"
-                    for msg in messages[-6:]
+                for msg in messages[-6:]:
+                    role = "Usuario" if msg.type == "human" else "Asistente"
+                    text = extract_text_from_message(msg)
+                    context_lines.append(f"- {role}: {text}")
+
+            if state and state.get("document_context"):
+                filename = state.get("document_filename", "documento")
+                doc_len = len(state.get("document_context") or "")
+                context_lines.append(
+                    f"- [Sistema]: El usuario ha adjuntado el documento: {filename!r}"
                 )
+                logger.info(
+                    "[SUPERVISOR] Documento inyectado en contexto de routing: file=%r, %d chars",
+                    filename,
+                    doc_len,
+                )
+            else:
+                logger.info("[SUPERVISOR] No hay document_context en state, no se inyecta documento.")
+
+            context = "\n".join(context_lines)
 
             system_prompt = _prompts.get_template("supervisor_system.j2").render()
             prompt = _prompts.get_template("supervisor_route.j2").render(
