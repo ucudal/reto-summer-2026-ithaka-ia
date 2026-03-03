@@ -152,16 +152,18 @@ class ValidatorAgent(AgentNode):
     def _detect_field(self, message: str) -> DetectionResult:
         lower_msg = message.lower()
 
+        # Try email regex first to avoid false keyword matches inside email addresses
+        # (e.g. "mail" inside "gmail.com", or "correo" inside "correo.ucu.edu.uy").
+        email_candidate = self._extract_email_candidate(message)
+        if email_candidate:
+            return DetectionResult(field="email", raw_value=email_candidate)
+
         for field, keywords in self._FIELD_KEYWORDS.items():
             for keyword in keywords:
                 if keyword in lower_msg:
                     value = self._extract_value_from_keyword(message, lower_msg, keyword, field)
                     if value:
                         return DetectionResult(field=field, raw_value=value)
-
-        email_candidate = self._extract_email_candidate(message)
-        if email_candidate:
-            return DetectionResult(field="email", raw_value=email_candidate)
 
         digit_bundle = re.sub(r"\D", "", message)
         if len(digit_bundle) >= 8:
